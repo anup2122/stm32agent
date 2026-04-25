@@ -50,7 +50,6 @@ def synthesize_change_set_from_model(model: IocModel) -> dict[str, object]:
         {"key": "Mcu.Name", "value": model.target_mcu},
         {"key": "ProjectManager.ToolChain", "value": model.toolchain},
         {"key": "ProjectManager.TargetToolchain", "value": model.toolchain},
-        {"key": "ProjectManager.ToolChainLocation", "value": "Projects"},
         {"key": "ProjectManager.MainLocation", "value": "Src"},
         {"key": "ProjectManager.ProjectStructure", "value": ""},
         {"key": "ProjectManager.UnderRoot", "value": "false"},

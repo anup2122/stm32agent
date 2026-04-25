@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-CONTRACT_VERSION = "2026-04-24.phase3.v1"
-PLAN_VERSION = "2026-04-24.phase3.plan.v1"
+CONTRACT_VERSION = "2026-04-25.phase5.v1"
+PLAN_VERSION = "2026-04-25.phase5.plan.v1"
 DEFAULT_PLAN_FILE_NAME = "plan.md"
 DEFAULT_TOOLCHAIN = "STM32CubeIDE"
+DEFAULT_REPEATED_FAILURE_THRESHOLD = 2
 
 
 def default_execution_policy() -> dict[str, object]:
@@ -17,6 +18,7 @@ def default_execution_policy() -> dict[str, object]:
         "runtime_check_after_flash": True,
         "fix_runtime_before_next_increment": True,
         "ask_user_on_repeated_failures": True,
+        "repeated_failure_threshold": DEFAULT_REPEATED_FAILURE_THRESHOLD,
         "ioc_cubemx_validation": "best_effort",
     }
 
@@ -25,11 +27,24 @@ def default_planning_policy() -> dict[str, object]:
     return {
         "horizon": "long_horizon",
         "core_first": True,
-        "increment_strategy": "single_slice",
+        "increment_strategy": "feature_by_feature",
         "feature_progression": "core_then_pluggable",
         "plan_format": "markdown_embedded_json",
         "status_file": DEFAULT_PLAN_FILE_NAME,
     }
+
+
+def list_contract_increments(contract: dict[str, object]) -> list[dict[str, object]]:
+    increments = contract.get("increments")
+    if isinstance(increments, list):
+        normalized = [deepcopy(increment) for increment in increments if isinstance(increment, dict)]
+        if normalized:
+            return normalized
+
+    current_increment = contract.get("current_increment")
+    if isinstance(current_increment, dict):
+        return [deepcopy(current_increment)]
+    return []
 
 
 def make_contract(
@@ -37,8 +52,10 @@ def make_contract(
     source_prompt: str,
     board_id: str,
     mcu: str,
+    project_context: dict[str, object],
     core_features: list[dict[str, object]],
     pluggable_features: list[dict[str, object]],
+    increments: list[dict[str, object]],
     current_increment: dict[str, object],
     interface_intents: list[dict[str, object]],
     defaults: dict[str, object] | None = None,
@@ -53,6 +70,7 @@ def make_contract(
         "language": "c",
         **(defaults or {}),
     }
+    normalized_increments = [deepcopy(increment) for increment in increments if isinstance(increment, dict)]
     return {
         "contract_version": CONTRACT_VERSION,
         "source_prompt": source_prompt,
@@ -60,6 +78,7 @@ def make_contract(
             "board_id": board_id,
             "mcu": mcu,
         },
+        "project_context": deepcopy(project_context),
         "defaults": normalized_defaults,
         "planning": default_planning_policy(),
         "execution_policy": {
@@ -68,6 +87,7 @@ def make_contract(
         },
         "core_features": deepcopy(core_features),
         "pluggable_features": deepcopy(pluggable_features),
+        "increments": normalized_increments,
         "current_increment": deepcopy(current_increment),
         "interface_intents": deepcopy(interface_intents),
         "assumptions": list(assumptions or []),
@@ -98,6 +118,23 @@ def validate_contract(contract: object) -> list[str]:
         mcu = target.get("mcu")
         if not isinstance(mcu, str) or not mcu.strip():
             errors.append("target.mcu is required.")
+
+    project_context = contract.get("project_context")
+    if not isinstance(project_context, dict):
+        errors.append("project_context is required.")
+    else:
+        kind = project_context.get("kind")
+        if kind not in {"new_device", "new_project", "existing_project"}:
+            errors.append("project_context.kind must be 'new_device', 'new_project', or 'existing_project'.")
+        ioc_handling = project_context.get("ioc_handling")
+        if ioc_handling not in {"download_from_github", "copy_existing_ioc"}:
+            errors.append("project_context.ioc_handling must be 'download_from_github' or 'copy_existing_ioc'.")
+        use_managed_copy = project_context.get("use_managed_project_copy")
+        if not isinstance(use_managed_copy, bool):
+            errors.append("project_context.use_managed_project_copy must be a boolean.")
+        configured_source_ioc_path = project_context.get("configured_source_ioc_path")
+        if configured_source_ioc_path is not None and not isinstance(configured_source_ioc_path, str):
+            errors.append("project_context.configured_source_ioc_path must be a string when provided.")
 
     defaults = contract.get("defaults")
     if not isinstance(defaults, dict):
@@ -131,16 +168,35 @@ def validate_contract(contract: object) -> list[str]:
         if not isinstance(value, list):
             errors.append(f"{field_name} must be a list.")
 
-    current_increment = contract.get("current_increment")
-    if not isinstance(current_increment, dict):
-        errors.append("current_increment is required.")
+    increments = list_contract_increments(contract)
+    if not increments:
+        errors.append("increments is required.")
     else:
-        increment_id = current_increment.get("id")
-        if not isinstance(increment_id, str) or not increment_id.strip():
-            errors.append("current_increment.id is required.")
-        feature_ids = current_increment.get("feature_ids")
-        if not isinstance(feature_ids, list) or not all(isinstance(item, str) and item.strip() for item in feature_ids):
-            errors.append("current_increment.feature_ids must be a non-empty string list.")
+        seen_increment_ids: set[str] = set()
+        for index, increment in enumerate(increments):
+            increment_id = increment.get("id")
+            if not isinstance(increment_id, str) or not increment_id.strip():
+                errors.append(f"increments[{index}].id is required.")
+            elif increment_id in seen_increment_ids:
+                errors.append(f"increments[{index}].id must be unique.")
+            else:
+                seen_increment_ids.add(increment_id)
+
+            feature_ids = increment.get("feature_ids")
+            if not isinstance(feature_ids, list) or not feature_ids or not all(isinstance(item, str) and item.strip() for item in feature_ids):
+                errors.append(f"increments[{index}].feature_ids must be a non-empty string list.")
+
+    current_increment = contract.get("current_increment")
+    if current_increment is not None:
+        if not isinstance(current_increment, dict):
+            errors.append("current_increment must be a dictionary when provided.")
+        else:
+            increment_id = current_increment.get("id")
+            if not isinstance(increment_id, str) or not increment_id.strip():
+                errors.append("current_increment.id is required.")
+            feature_ids = current_increment.get("feature_ids")
+            if not isinstance(feature_ids, list) or not feature_ids or not all(isinstance(item, str) and item.strip() for item in feature_ids):
+                errors.append("current_increment.feature_ids must be a non-empty string list.")
 
     assumptions = contract.get("assumptions")
     if not isinstance(assumptions, list) or not all(isinstance(item, str) for item in assumptions):

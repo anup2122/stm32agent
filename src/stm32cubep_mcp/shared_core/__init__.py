@@ -1,8 +1,17 @@
-from __future__ import annotations
-
-from pathlib import Path
-
-from .shared_core import (
+from .config_loader import (
+    compact_project_metadata,
+    derive_project_metadata,
+    discover_cube_programmer,
+    load_optional_json_config,
+    load_project_metadata,
+    load_tools_local_config,
+    normalize_build_system,
+    normalize_project_toolchain,
+    render_project_metadata_jsonc,
+    resolve_cli_path,
+    summarize_config_status,
+)
+from .constants import (
     DEFAULT_BUILD_CONFIGURATION,
     DEFAULT_BUILD_SYSTEM,
     DEFAULT_CLI_CANDIDATES,
@@ -17,31 +26,12 @@ from .shared_core import (
     PROJECT_METADATA_PATHS,
     PROJECT_SCHEMA_PATH,
     TOOLS_SCHEMA_PATH,
-    cloned_json_object,
-    compact_project_metadata,
-    config_search_paths,
-    create_log_path,
-    default_cli_executable_name,
-    derive_project_metadata,
-    discover_cube_programmer,
-    host_platform_name,
-    load_optional_json_config,
-    load_project_metadata,
-    load_tools_local_config,
-    log_directory,
-    normalize_build_system,
-    normalize_project_toolchain,
-    parse_jsonc_document,
-    render_project_metadata_jsonc,
-    resolve_candidate_path,
-    resolve_cli_path,
-    strip_jsonc_comments,
-    summarize_config_status,
-    unique_paths,
-    validate_project_metadata_schema,
-    validate_string_list,
-    validate_tools_local_schema,
 )
+from .host import default_cli_executable_name, host_platform_name
+from .jsonc import cloned_json_object, parse_jsonc_document, strip_jsonc_comments
+from .logs import create_log_path, log_directory
+from .paths import config_search_paths, resolve_candidate_path, unique_paths
+from .schema_validation import validate_project_metadata_schema, validate_string_list, validate_tools_local_schema
 
 __all__ = [
     "DEFAULT_BUILD_CONFIGURATION",
@@ -57,7 +47,6 @@ __all__ = [
     "PROJECT_METADATA_ENV_VAR",
     "PROJECT_METADATA_PATHS",
     "PROJECT_SCHEMA_PATH",
-    "Path",
     "TOOLS_SCHEMA_PATH",
     "cloned_json_object",
     "compact_project_metadata",

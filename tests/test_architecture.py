@@ -209,6 +209,30 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(orchestrator_server.classify_prompt("flash this firmware"), "cube_programmer")
         self.assertEqual(orchestrator_server.classify_prompt("Create a NUCLEO-L476RG project that will send data to PC"), "requirements")
 
+    def test_classify_prompt_routes_verbose_engineering_spec_to_requirements(self) -> None:
+        prompt = (
+            "This project has to be tested with NUCLEO-L476RG Rev C. "
+            "The objective is to configure TIM1 channel 3 complementary PWM with DMA at 80 MHz."
+        )
+
+        self.assertEqual(orchestrator_server.classify_prompt(prompt), "requirements")
+
+    def test_classify_prompt_prefers_feature_delivery_over_build_flash_for_new_project_specs(self) -> None:
+        prompt = (
+            "Create a new NUCLEO-L476RG project using TIM1 PWM with DMA, "
+            "then build, flash, and test it on the board."
+        )
+
+        self.assertEqual(orchestrator_server.classify_prompt(prompt), "requirements")
+
+    def test_classify_prompt_routes_existing_project_mutation_specs_to_requirements(self) -> None:
+        prompt = (
+            "Update the current NUCLEO-L476RG project to use TIM1 channel 3 "
+            "complementary PWM with DMA at 80 MHz."
+        )
+
+        self.assertEqual(orchestrator_server.classify_prompt(prompt), "requirements")
+
     @patch("stm32cubep_mcp.orchestrator.server.stm32_orchestrate_debug_session", new_callable=AsyncMock)
     async def test_orchestrate_prompt_routes_debug_requests(self, stm32_orchestrate_debug_session: AsyncMock) -> None:
         stm32_orchestrate_debug_session.return_value = {"server": "orchestrator", "success": True}
@@ -251,6 +275,22 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             flash_timeout_seconds=45,
             cubemx_timeout_seconds=300,
         )
+        self.assertEqual(result["selected_domain"], "requirements")
+
+    @patch("stm32cubep_mcp.orchestrator.server.stm32_orchestrate_feature_prompt", new_callable=AsyncMock)
+    async def test_orchestrate_prompt_routes_verbose_engineering_spec_to_requirements(
+        self,
+        stm32_orchestrate_feature_prompt: AsyncMock,
+    ) -> None:
+        prompt = (
+            "This project has to be tested with NUCLEO-L476RG Rev C. "
+            "The objective is to configure TIM1 channel 3 complementary PWM with DMA at 80 MHz."
+        )
+        stm32_orchestrate_feature_prompt.return_value = {"server": "orchestrator", "success": False, "stage": "requirements"}
+
+        result = await orchestrator_server.stm32_orchestrate_prompt(prompt, timeout_seconds=45)
+
+        stm32_orchestrate_feature_prompt.assert_awaited_once()
         self.assertEqual(result["selected_domain"], "requirements")
 
     @patch("stm32cubep_mcp.orchestrator.server.cubemx_server.stm32_cubemx_regenerate_project")
@@ -469,6 +509,130 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             if call.kwargs.get("stage") == "cubemx" and call.kwargs.get("status") == "in_progress"
         )
         self.assertEqual(cubemx_in_progress_call.kwargs["details"]["cubemx_validation"]["validation"], "accepted")
+
+    @patch("stm32cubep_mcp.orchestrator.server.requirements_server.update_plan_status")
+    @patch("stm32cubep_mcp.orchestrator.server.programmer_server.stm32_flash_firmware", new_callable=AsyncMock)
+    @patch("stm32cubep_mcp.orchestrator.server.build_server.stm32_build_project")
+    @patch("stm32cubep_mcp.orchestrator.server.configured_cubemx_request")
+    @patch("stm32cubep_mcp.orchestrator.server.cubemx_server.regenerate_project_internal")
+    @patch("stm32cubep_mcp.orchestrator.server.ioc_builder_server.construct_ioc_file")
+    @patch("stm32cubep_mcp.orchestrator.server.ioc_builder_server.apply_ioc_change_set")
+    @patch("stm32cubep_mcp.orchestrator.server.requirements_server.stm32_requirements_decompose")
+    async def test_feature_delivery_workflow_executes_multiple_increments_sequentially(
+        self,
+        stm32_requirements_decompose: object,
+        apply_ioc_change_set: object,
+        construct_ioc_file: object,
+        regenerate_project_internal: object,
+        configured_cubemx_request: object,
+        stm32_build_project: object,
+        stm32_flash_firmware: AsyncMock,
+        update_plan_status: object,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_ioc_path = Path(temp_dir) / "managed" / "complex-app.ioc"
+            missing_ioc_path.parent.mkdir(parents=True)
+            source_dir = missing_ioc_path.parent / "Src"
+            source_dir.mkdir()
+            (source_dir / "main.c").write_text(
+                """#include "main.h"\n\n/* USER CODE BEGIN Includes */\n\n/* USER CODE END Includes */\n\n/* USER CODE BEGIN PV */\n\n/* USER CODE END PV */\n\nint main(void)\n{\n  /* USER CODE BEGIN 2 */\n\n  /* USER CODE END 2 */\n\n  /* USER CODE BEGIN WHILE */\n  while (1)\n  {\n    /* USER CODE END WHILE */\n\n    /* USER CODE BEGIN 3 */\n  }\n  /* USER CODE END 3 */\n}\n""",
+                encoding="utf-8",
+            )
+            artifact = Path(temp_dir) / "firmware.elf"
+            artifact.write_text("stub", encoding="utf-8")
+            increments = [
+                {
+                    "id": "increment-core-001",
+                    "title": "Implement Blink user LED",
+                    "feature_ids": ["core-led-blink"],
+                    "kind": "core",
+                    "interface_intent_ids": ["iface-led-pa5"],
+                    "sequence": 1,
+                },
+                {
+                    "id": "increment-core-002",
+                    "title": "Implement Send data to PC",
+                    "feature_ids": ["core-uart-device-to-pc"],
+                    "kind": "core",
+                    "interface_intent_ids": ["iface-uart-host-console"],
+                    "sequence": 2,
+                },
+            ]
+            stm32_requirements_decompose.return_value = {
+                "success": True,
+                "contract": {
+                    "plan_file": str(Path(temp_dir) / "plan.md"),
+                    "increments": increments,
+                    "current_increment": increments[0],
+                    "core_features": [
+                        {"id": "core-led-blink", "kind": "core", "interface_intent_ids": ["iface-led-pa5"]},
+                        {"id": "core-uart-device-to-pc", "kind": "core", "interface_intent_ids": ["iface-uart-host-console"]},
+                    ],
+                    "pluggable_features": [],
+                    "interface_intents": [
+                        {"id": "iface-led-pa5", "type": "gpio", "role": "led_output", "pin": "PA5"},
+                        {"id": "iface-uart-host-console", "type": "uart", "role": "device_to_pc_tx", "instance_preference": "USART2", "baud_rate": 115200},
+                    ],
+                    "execution_policy": {
+                        "mode": "incremental",
+                        "ioc_cubemx_validation": "best_effort",
+                        "build_after_each_increment": True,
+                        "flash_after_successful_build": False,
+                        "runtime_check_after_flash": False,
+                        "ask_user_on_repeated_failures": True,
+                    },
+                },
+                "plan_artifact": {
+                    "plan_path": str(Path(temp_dir) / "plan.md"),
+                    "plan": {"increments": increments, "completed_increment_ids": [], "failed_increment_ids": []},
+                },
+            }
+            configured_cubemx_request.return_value = {
+                "ioc_path": str(missing_ioc_path),
+                "project_name": "complex-app",
+                "project_toolchain": "STM32CubeIDE",
+                "project_path": str(missing_ioc_path.parent),
+                "script_path": str(missing_ioc_path.parent / "script.txt"),
+            }
+            def construct_side_effect(*args: object, **kwargs: object) -> dict[str, object]:
+                missing_ioc_path.write_text("stub", encoding="utf-8")
+                return {
+                    "success": True,
+                    "ioc_path": str(missing_ioc_path),
+                    "cubemx_validation": {"success": True, "validation": "accepted", "message": "CubeMX accepted the IOC."},
+                }
+
+            construct_ioc_file.side_effect = construct_side_effect
+            apply_ioc_change_set.return_value = {
+                "success": True,
+                "ioc_path": str(missing_ioc_path),
+                "cubemx_validation": {"success": True, "validation": "accepted", "message": "CubeMX accepted the IOC."},
+            }
+            regenerate_project_internal.return_value = {"success": True, "server": "cubemx"}
+            stm32_build_project.return_value = {"success": True, "artifact": str(artifact)}
+
+            result = await orchestrator_server.stm32_orchestrate_feature_prompt(
+                prompt="Create a NUCLEO-L476RG project that blinks the LED and sends data to PC but build only and do not flash",
+                build_timeout_seconds=300,
+                flash_timeout_seconds=120,
+                cubemx_timeout_seconds=600,
+            )
+
+        construct_ioc_file.assert_called_once()
+        apply_ioc_change_set.assert_called_once()
+        self.assertEqual(stm32_build_project.call_count, 2)
+        self.assertEqual(regenerate_project_internal.call_count, 2)
+        stm32_flash_firmware.assert_not_awaited()
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["increment_results"]), 2)
+        self.assertEqual(
+            [entry["increment"]["id"] for entry in result["increment_results"]],
+            ["increment-core-001", "increment-core-002"],
+        )
+        second_increment_contract = apply_ioc_change_set.call_args.args[0]
+        self.assertEqual(second_increment_contract["current_increment"]["id"], "increment-core-002")
+        self.assertEqual(second_increment_contract["core_features"][0]["id"], "core-uart-device-to-pc")
+        self.assertTrue(result["firmware_patch_result"]["success"])
 
     @patch("stm32cubep_mcp.orchestrator.server.requirements_server.update_plan_status")
     @patch("stm32cubep_mcp.orchestrator.server.programmer_server.stm32_flash_firmware", new_callable=AsyncMock)

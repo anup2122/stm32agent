@@ -13,11 +13,29 @@ from stm32cubep_mcp.requirements_ioc_contract import CONTRACT_VERSION, validate_
 
 
 class RequirementPhase2Tests(unittest.TestCase):
+    def sample_base_ioc_text(self) -> str:
+        return "\n".join([
+            "#MicroXplorer Configuration settings - do not modify",
+            "File.Version=6",
+            "Mcu.Name=STM32L476RGTx",
+            "Mcu.Package=LQFP64",
+            "ProjectManager.ToolChain=STM32CubeIDE",
+            "ProjectManager.TargetToolchain=STM32CubeIDE",
+            "Mcu.IP0=NVIC",
+            "Mcu.IP1=RCC",
+            "Mcu.IP2=SYS",
+            "Mcu.IPNb=3",
+            "Mcu.Pin0=PA13",
+            "Mcu.Pin1=PA14",
+            "Mcu.PinsNb=2",
+            "",
+        ])
+
     def test_policy_classifier_distinguishes_strict_build_only_prompt(self) -> None:
         policy = derive_execution_policy("Create a NUCLEO-L476RG project, build only, do not flash, and run and test it later")
 
         self.assertEqual(policy["ioc_cubemx_validation"], "required")
-        self.assertFalse(policy["ask_user_on_repeated_failures"])
+        self.assertNotIn("ask_user_on_repeated_failures", policy)
         self.assertFalse(policy["flash_after_successful_build"])
         self.assertFalse(policy["runtime_check_after_flash"])
 
@@ -36,16 +54,33 @@ class RequirementPhase2Tests(unittest.TestCase):
         self.assertEqual(contract["target"]["board_id"], "NUCLEO-L476RG")
         self.assertEqual(contract["defaults"]["toolchain"], "STM32CubeIDE")
         self.assertEqual(contract["planning"]["horizon"], "long_horizon")
+        self.assertEqual(contract["planning"]["increment_strategy"], "feature_by_feature")
         self.assertEqual(contract["execution_policy"]["ioc_cubemx_validation"], "required")
-        self.assertFalse(contract["execution_policy"]["ask_user_on_repeated_failures"])
+        self.assertTrue(contract["execution_policy"]["ask_user_on_repeated_failures"])
+        self.assertEqual(contract["project_context"]["kind"], "new_device")
+        self.assertEqual(contract["project_context"]["ioc_handling"], "download_from_github")
         self.assertEqual(contract["core_features"][0]["id"], "core-uart-device-to-pc")
+        self.assertEqual(contract["increments"][0]["id"], "increment-core-001")
         self.assertEqual(contract["interface_intents"][0]["instance_preference"], "USART2")
         self.assertIn("pluggable-runtime-check", [feature["id"] for feature in contract["pluggable_features"]])
-        self.assertEqual(
-            Path(contract["plan_file"]),
-            (Path.cwd() / "NUCLEO-L476RG-UART2-printf" / "plan.md").resolve(),
-        )
+        self.assertEqual(Path(contract["plan_file"]), (Path.cwd() / "generated" / "plan.md").resolve())
         self.assertEqual(validate_contract(contract), [])
+
+    def test_requirements_detect_existing_project_context_from_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_ioc = Path(temp_dir) / "existing" / "board.ioc"
+            source_ioc.parent.mkdir(parents=True)
+            source_ioc.write_text(self.sample_base_ioc_text(), encoding="utf-8")
+
+            with patch(
+                "stm32cubep_mcp.requirements.server.shared.load_project_metadata",
+                return_value={"data": {"board": {"name": "NUCLEO-L476RG", "mcu": "STM32L476RGTx"}, "firmware": {"ioc_path": str(source_ioc)}}},
+            ):
+                contract = requirements_server.build_requirements_contract("Update the current project to blink the LED")
+
+        self.assertEqual(contract["project_context"]["kind"], "existing_project")
+        self.assertEqual(contract["project_context"]["ioc_handling"], "copy_existing_ioc")
+        self.assertEqual(contract["project_context"]["configured_source_ioc_path"], str(source_ioc.resolve()))
 
     def test_requirements_default_plan_file_follows_ioc_directory(self) -> None:
         with patch(
@@ -56,11 +91,50 @@ class RequirementPhase2Tests(unittest.TestCase):
 
         self.assertEqual(Path(plan_file), (Path.cwd() / "generated" / "demo-project" / "plan.md").resolve())
 
+    def test_requirements_detect_target_can_fall_back_to_project_metadata(self) -> None:
+        with patch(
+            "stm32cubep_mcp.requirements.server.shared.load_project_metadata",
+            return_value={"data": {"board": {"name": "NUCLEO-L476RG", "mcu": "STM32L476RGTx"}}},
+        ):
+            board_id, mcu = requirements_server.detect_target("Update the current project to blink the LED")
+
+        self.assertEqual(board_id, "NUCLEO-L476RG")
+        self.assertEqual(mcu, "STM32L476RGTx")
+
+    def test_requirements_engineering_spec_defaults_to_new_project_context(self) -> None:
+        with patch(
+            "stm32cubep_mcp.requirements.server.shared.load_project_metadata",
+            return_value={"data": {"firmware": {"ioc_path": "generated/existing/existing.ioc"}}},
+        ):
+            context = requirements_server.detect_project_context(
+                "This project has to be tested with NUCLEO-L476RG Rev C. The objective is to configure TIM1 PWM with DMA."
+            )
+
+        self.assertEqual(context["kind"], "new_project")
+        self.assertEqual(context["ioc_handling"], "download_from_github")
+
     def test_requirements_decompose_keeps_best_effort_validation_for_non_strict_prompt(self) -> None:
         contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that blinks the LED and sends data to PC")
 
         self.assertEqual(contract["execution_policy"]["ioc_cubemx_validation"], "best_effort")
         self.assertTrue(contract["execution_policy"]["ask_user_on_repeated_failures"])
+
+    def test_requirements_decompose_fails_cleanly_for_unsupported_complex_pwm_dma_prompt(self) -> None:
+        prompt = (
+            "This project has to be tested with NUCLEO-L476RG Rev C. "
+            "The objective is to configure TIM1 channel 3 complementary PWM with DMA updating CCR3 at 80 MHz."
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plan_file = Path(temp_dir) / "plan.md"
+            contract = requirements_server.build_requirements_contract(prompt)
+            contract["plan_file"] = str(plan_file)
+            with patch("stm32cubep_mcp.requirements.server.build_requirements_contract", return_value=contract):
+                result = requirements_server.stm32_requirements_decompose(prompt, persist_plan=True)
+
+        self.assertFalse(result["success"])
+        self.assertIn("not implemented", result["plan_artifact"]["plan"]["current_stage_message"])
+        self.assertEqual(result["contract"]["project_context"]["kind"], "new_project")
+        self.assertEqual(result["contract"]["increments"], [])
 
     def test_requirements_decompose_can_disable_flash_for_build_only_prompt(self) -> None:
         contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that sends data to PC but build only and do not flash")
@@ -109,7 +183,76 @@ class RequirementPhase2Tests(unittest.TestCase):
             persisted_text = plan_file.read_text(encoding="utf-8")
 
         self.assertIn("IOC CubeMX validation: `required`", persisted_text)
-        self.assertIn("Ask user on repeated failures: `False`", persisted_text)
+        self.assertIn("Ask user on repeated failures: `True`", persisted_text)
+
+    def test_requirements_builds_core_then_pluggable_increment_queue(self) -> None:
+        contract = requirements_server.build_requirements_contract(
+            "Create a NUCLEO-L476RG project that blinks the LED, sends data to PC, and reacts to the user button"
+        )
+
+        increment_ids = [increment["id"] for increment in contract["increments"]]
+        increment_feature_ids = [increment["feature_ids"] for increment in contract["increments"]]
+
+        self.assertEqual(
+            increment_ids,
+            ["increment-core-001", "increment-core-002", "increment-pluggable-001"],
+        )
+        self.assertEqual(
+            increment_feature_ids,
+            [["core-led-blink"], ["core-uart-device-to-pc"], ["pluggable-user-button-event"]],
+        )
+        self.assertEqual(contract["current_increment"]["id"], "increment-core-001")
+
+    def test_requirements_plan_artifact_preserves_completed_increment_progress_on_refresh(self) -> None:
+        prompt = "Create a NUCLEO-L476RG project that blinks the LED and sends data to PC"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plan_file = Path(temp_dir) / "plan.md"
+            contract = requirements_server.build_requirements_contract(prompt)
+            contract["plan_file"] = str(plan_file)
+
+            first_persist = requirements_server.persist_plan_artifact(contract)
+            requirements_server.update_plan_status(
+                str(plan_file),
+                stage="increment",
+                status="completed",
+                message="The first increment completed.",
+                increment_id="increment-core-001",
+            )
+
+            refreshed = requirements_server.persist_plan_artifact(contract)
+
+        first_plan = first_persist["plan"]
+        refreshed_plan = refreshed["plan"]
+        self.assertEqual(first_plan["active_increment_id"], "increment-core-001")
+        self.assertIn("increment-core-001", refreshed_plan["completed_increment_ids"])
+        self.assertEqual(refreshed_plan["active_increment_id"], "increment-core-002")
+
+    def test_requirements_plan_requests_user_review_after_repeated_failures(self) -> None:
+        prompt = "Create a NUCLEO-L476RG project that sends data to PC"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plan_file = Path(temp_dir) / "plan.md"
+            contract = requirements_server.build_requirements_contract(prompt)
+            contract["plan_file"] = str(plan_file)
+            requirements_server.persist_plan_artifact(contract)
+
+            requirements_server.update_plan_status(
+                str(plan_file),
+                stage="build",
+                status="failed",
+                message="First build failed.",
+                increment_id="increment-core-001",
+            )
+            result = requirements_server.update_plan_status(
+                str(plan_file),
+                stage="build",
+                status="failed",
+                message="Second build failed.",
+                increment_id="increment-core-001",
+            )
+
+        self.assertTrue(result["plan"]["needs_user_review"])
+        self.assertEqual(result["plan"]["workflow_status"], "needs_user_review")
+        self.assertIn("Review the plan file", result["plan"]["review_request_reason"])
 
     def test_requirements_plan_status_reads_live_state_fields(self) -> None:
         prompt = "Create a NUCLEO-L476RG project that will blink the LED and send data to PC"
@@ -237,25 +380,119 @@ class RequirementPhase2Tests(unittest.TestCase):
         self.assertIn("Mcu.IP3=USART2", updated_text)
         self.assertEqual(result["cubemx_validation"]["validation"], "accepted")
 
-    def test_ioc_builder_construct_creates_reference_seeded_ioc_file(self) -> None:
+    def test_ioc_builder_construct_prefers_local_board_ioc_for_new_project(self) -> None:
         contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that blinks the LED and sends data to PC")
         with tempfile.TemporaryDirectory() as temp_dir:
             ioc_path = Path(temp_dir) / "constructed.ioc"
 
-            with patch("stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx", return_value={"success": True, "validation": "accepted"}):
-                result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
-                constructed_text = ioc_path.read_text(encoding="utf-8")
+            with patch(
+                "stm32cubep_mcp.ioc_builder.server.load_local_board_ioc_lines",
+                return_value={
+                    "success": True,
+                    "match": {"board_id": "NUCLEO-L476RG", "ioc_filename": "B40_Nucleo_NUCLEO-L476RG_STM32L476RG_Board_AllConfig.ioc"},
+                    "ioc_path": str((Path(temp_dir) / "local-board.ioc").resolve()),
+                    "lines": self.sample_base_ioc_text().splitlines(),
+                },
+            ) as load_local_board_ioc_lines:
+                with patch(
+                    "stm32cubep_mcp.ioc_builder.server.download_github_ioc_lines",
+                    return_value={
+                        "success": True,
+                        "match": {"name": "B40_Nucleo_NUCLEO-L476RG_STM32L476RG_Board_AllConfig.ioc"},
+                        "lines": self.sample_base_ioc_text().splitlines(),
+                    },
+                ) as download_github_ioc_lines:
+                    with patch("stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx", return_value={"success": True, "validation": "accepted"}):
+                        result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
+                        constructed_text = ioc_path.read_text(encoding="utf-8")
 
+        load_local_board_ioc_lines.assert_called_once()
+        download_github_ioc_lines.assert_not_called()
         self.assertTrue(result["success"])
-        self.assertEqual(result["construction_source"], "reference_ioc")
-        self.assertIn("#MicroXplorer Configuration settings - do not modify", constructed_text)
-        self.assertIn("board=NUCLEO-L476RG2", constructed_text)
-        self.assertIn("boardIOC=true", constructed_text)
-        self.assertIn("ProjectManager.ToolChainLocation=Projects", constructed_text)
+        self.assertEqual(result["construction_source"], "local_board_ioc")
+        self.assertIn("ProjectManager.ProjectFileName=constructed.ioc", constructed_text)
+        self.assertIn("ProjectManager.ProjectName=constructed", constructed_text)
+        self.assertNotIn("ProjectManager.ToolChainLocation=", constructed_text)
         self.assertIn("PA2.Signal=USART2_TX", constructed_text)
         self.assertIn("PA3.Signal=USART2_RX", constructed_text)
         self.assertIn("PA5.Signal=GPIO_Output", constructed_text)
         self.assertEqual(result["cubemx_validation"]["validation"], "accepted")
+
+    def test_ioc_builder_construct_falls_back_to_github_when_local_board_ioc_is_unavailable(self) -> None:
+        contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that blinks the LED and sends data to PC")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ioc_path = Path(temp_dir) / "constructed.ioc"
+
+            with patch(
+                "stm32cubep_mcp.ioc_builder.server.load_local_board_ioc_lines",
+                return_value={"success": False, "message": "local board baseline unavailable"},
+            ) as load_local_board_ioc_lines:
+                with patch(
+                    "stm32cubep_mcp.ioc_builder.server.download_github_ioc_lines",
+                    return_value={
+                        "success": True,
+                        "match": {"name": "B40_Nucleo_NUCLEO-L476RG_STM32L476RG_Board_AllConfig.ioc"},
+                        "lines": self.sample_base_ioc_text().splitlines(),
+                    },
+                ) as download_github_ioc_lines:
+                    with patch("stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx", return_value={"success": True, "validation": "accepted"}):
+                        result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
+                        constructed_text = ioc_path.read_text(encoding="utf-8")
+
+        load_local_board_ioc_lines.assert_called_once()
+        download_github_ioc_lines.assert_called_once()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["construction_source"], "github_board_ioc")
+        self.assertIn("ProjectManager.ProjectFileName=constructed.ioc", constructed_text)
+        self.assertIn("ProjectManager.ProjectName=constructed", constructed_text)
+        self.assertNotIn("ProjectManager.ToolChainLocation=", constructed_text)
+        self.assertIn("PA2.Signal=USART2_TX", constructed_text)
+        self.assertIn("PA3.Signal=USART2_RX", constructed_text)
+        self.assertIn("PA5.Signal=GPIO_Output", constructed_text)
+        self.assertEqual(result["cubemx_validation"]["validation"], "accepted")
+
+    def test_ioc_builder_construct_copies_existing_ioc_for_running_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_ioc = Path(temp_dir) / "source" / "existing.ioc"
+            source_ioc.parent.mkdir(parents=True)
+            source_ioc.write_text(self.sample_base_ioc_text(), encoding="utf-8")
+            target_ioc = Path(temp_dir) / "managed" / "copied.ioc"
+
+            with patch(
+                "stm32cubep_mcp.requirements.server.shared.load_project_metadata",
+                return_value={"data": {"board": {"name": "NUCLEO-L476RG", "mcu": "STM32L476RGTx"}, "firmware": {"ioc_path": str(source_ioc)}}},
+            ):
+                contract = requirements_server.build_requirements_contract("Update the current project to blink the LED and send data to PC")
+
+            with patch("stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx", return_value={"success": True, "validation": "accepted"}):
+                result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(target_ioc), source_ioc_path=str(source_ioc))
+                constructed_text = target_ioc.read_text(encoding="utf-8")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["construction_source"], "existing_ioc_copy")
+        self.assertEqual(result["base_ioc"]["source_ioc_path"], str(source_ioc.resolve()))
+        self.assertIn("ProjectManager.ProjectFileName=copied.ioc", constructed_text)
+        self.assertIn("PA2.Signal=USART2_TX", constructed_text)
+        self.assertIn("PA3.Signal=USART2_RX", constructed_text)
+        self.assertIn("PA5.Signal=GPIO_Output", constructed_text)
+
+    def test_ioc_builder_construct_fails_when_github_ioc_lookup_fails(self) -> None:
+        contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that blinks the LED and sends data to PC")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ioc_path = Path(temp_dir) / "constructed.ioc"
+
+            with patch(
+                "stm32cubep_mcp.ioc_builder.server.load_local_board_ioc_lines",
+                return_value={"success": False, "message": "local board baseline unavailable"},
+            ):
+                with patch(
+                    "stm32cubep_mcp.ioc_builder.server.download_github_ioc_lines",
+                    return_value={"success": False, "message": "lookup failed"},
+                ):
+                    result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
+
+        self.assertFalse(result["success"])
+        self.assertIn("lookup failed", result["message"])
 
     def test_ioc_builder_construct_fails_when_cubemx_rejects_ioc(self) -> None:
         contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that blinks the LED and sends data to PC")
@@ -263,10 +500,22 @@ class RequirementPhase2Tests(unittest.TestCase):
             ioc_path = Path(temp_dir) / "constructed.ioc"
 
             with patch(
-                "stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx",
-                return_value={"success": False, "validation": "rejected", "message": "CubeMX rejected the IOC."},
+                "stm32cubep_mcp.ioc_builder.server.load_local_board_ioc_lines",
+                return_value={"success": False, "message": "local board baseline unavailable"},
             ):
-                result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
+                with patch(
+                    "stm32cubep_mcp.ioc_builder.server.download_github_ioc_lines",
+                    return_value={
+                        "success": True,
+                        "match": {"name": "B40_Nucleo_NUCLEO-L476RG_STM32L476RG_Board_AllConfig.ioc"},
+                        "lines": self.sample_base_ioc_text().splitlines(),
+                    },
+                ):
+                    with patch(
+                        "stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx",
+                        return_value={"success": False, "validation": "rejected", "message": "CubeMX rejected the IOC."},
+                    ):
+                        result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
 
         self.assertFalse(result["success"])
         self.assertEqual(result["cubemx_validation"]["validation"], "rejected")
@@ -279,10 +528,22 @@ class RequirementPhase2Tests(unittest.TestCase):
             ioc_path = Path(temp_dir) / "constructed.ioc"
 
             with patch(
-                "stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx",
-                return_value={"success": True, "validation": "skipped", "message": "STM32CubeMX was not found."},
+                "stm32cubep_mcp.ioc_builder.server.load_local_board_ioc_lines",
+                return_value={"success": False, "message": "local board baseline unavailable"},
             ):
-                result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
+                with patch(
+                    "stm32cubep_mcp.ioc_builder.server.download_github_ioc_lines",
+                    return_value={
+                        "success": True,
+                        "match": {"name": "B40_Nucleo_NUCLEO-L476RG_STM32L476RG_Board_AllConfig.ioc"},
+                        "lines": self.sample_base_ioc_text().splitlines(),
+                    },
+                ):
+                    with patch(
+                        "stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx",
+                        return_value={"success": True, "validation": "skipped", "message": "STM32CubeMX was not found."},
+                    ):
+                        result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
 
         self.assertFalse(result["success"])
         self.assertEqual(result["cubemx_validation"]["validation"], "skipped")

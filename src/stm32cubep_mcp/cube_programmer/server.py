@@ -1398,6 +1398,21 @@ def apply_runtime_target_check(
         result["success"] = False
         result["target_mismatch"] = mismatch
         result["message"] = mismatch["reason"]
+        return result
+
+    runtime_halted = "Core is halted" in str(runtime_check.get("stdout", ""))
+    if runtime_halted and runtime_check.get("success"):
+        resume_result = execute_connected_operation(
+            operation="runtime_resume",
+            log_prefix="runtime_go",
+            action_arguments=["--go"],
+            timeout_seconds=min(timeout_seconds, 30),
+            **connect_kwargs,
+        )
+        result["post_action_resume"] = resume_result
+        if not resume_result.get("success"):
+            result["success"] = False
+            result["message"] = "Flash succeeded, but the post-check runtime resume failed."
     return result
 
 

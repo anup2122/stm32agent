@@ -7,11 +7,13 @@
     "contract_version",
     "source_prompt",
     "target",
+    "project_context",
     "defaults",
     "planning",
     "execution_policy",
     "core_features",
     "pluggable_features",
+    "increments",
     "current_increment",
     "interface_intents",
     "assumptions",
@@ -21,7 +23,7 @@
   "properties": {
     "contract_version": {
       "type": "string",
-      "const": "2026-04-24.phase3.v1"
+      "const": "2026-04-25.phase5.v1"
     },
     "source_prompt": {
       "type": "string",
@@ -33,6 +35,30 @@
       "properties": {
         "board_id": { "type": "string", "minLength": 1 },
         "mcu": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "project_context": {
+      "type": "object",
+      "required": ["kind", "ioc_handling", "use_managed_project_copy"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["new_device", "new_project", "existing_project"]
+        },
+        "ioc_handling": {
+          "type": "string",
+          "enum": ["download_from_github", "copy_existing_ioc"]
+        },
+        "configured_source_ioc_path": {
+          "type": ["string", "null"]
+        },
+        "use_managed_project_copy": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
@@ -63,6 +89,10 @@
         "ioc_cubemx_validation": {
           "type": "string",
           "enum": ["best_effort", "required"]
+        },
+        "repeated_failure_threshold": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": true
@@ -72,6 +102,29 @@
     },
     "pluggable_features": {
       "type": "array"
+    },
+    "increments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "feature_ids"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "kind": { "type": "string" },
+          "sequence": { "type": "integer" },
+          "interface_intent_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "feature_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "additionalProperties": true
+      }
     },
     "current_increment": {
       "type": "object",

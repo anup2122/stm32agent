@@ -600,6 +600,44 @@ class MismatchDetectionTests(unittest.TestCase):
         self.assertEqual(checked["message"], "this does not match to the attached target")
         self.assertIn("target_mismatch", checked)
 
+    @patch("stm32cubep_mcp.server.execute_connected_operation")
+    def test_apply_runtime_target_check_resumes_core_after_halted_status_probe(self, execute_connected_operation: object) -> None:
+        execute_connected_operation.side_effect = [
+            {
+                "success": True,
+                "stdout": "Core is halted\nBoard       : NUCLEO-L476RG",
+                "operation": "runtime_check",
+                "log_file": "runtime.log",
+            },
+            {
+                "success": True,
+                "stdout": "Application is running",
+                "operation": "runtime_resume",
+                "log_file": "runtime_go.log",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            firmware = Path(temp_dir) / "NUCLEO-L476RG-UART2-printf.axf"
+            firmware.write_text("Built for STM32L476RG", encoding="utf-8")
+            result = {
+                "success": True,
+                "stdout": "Board       : NUCLEO-L476RG",
+                "message": "ok",
+            }
+
+            checked = server.apply_runtime_target_check(
+                result,
+                firmware_path=firmware,
+                post_action="go",
+                timeout_seconds=30,
+                connect_kwargs={"port": "SWD", "frequency_khz": 4000, "mode": "NORMAL", "reset": "SWrst"},
+            )
+
+        self.assertTrue(checked["success"])
+        self.assertIn("post_action_resume", checked)
+        self.assertEqual(checked["post_action_resume"]["operation"], "runtime_resume")
+
 
 class ToolWrapperTests(unittest.TestCase):
     @patch("stm32cubep_mcp.server.execute_connect", return_value={"success": True})
