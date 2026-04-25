@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  // Actual STM32 project name. Keep this single source of truth.
+  "project_name": "NUCLEO-L476RG-UART2-printf",
+  // Generated project root folder relative to the workspace.
+  "generated_root": "generated",
+  // Default CubeMX toolchain when no section override is needed.
+  "project_toolchain": "STM32CubeIDE",
+  // Default build backend used by the build server.
+  "build_system": "cubeide",
+  // Default build configuration used for ELF and build output paths.
+  "default_configuration": "Debug",
+  // Board identity and connection defaults supplied by the user.
+  "board": {
+    "name": "NUCLEO-L476RG",
+    "mcu": "STM32L476RG",
+    "interface": "SWD",
+    "connect_defaults": {
+      "port": "SWD",
+      "frequency_khz": 4000,
+      "mode": "NORMAL",
+      "reset": "SWrst"
+    }
+  },
+  // Optional firmware overrides. Derived IOC and ELF paths are omitted unless you want to override them.
+  "firmware": {
+    "format": "elf"
+  },
+  // Optional CubeMX overrides. Derived project_name, project_path, and script_path are omitted unless overridden.
+  "cubemx": {
+    "log_path": "C:/Users/anupd/.stm32cubemx/STM32CubeMX.log"
+  },
+  // Optional build overrides. Derived workspace, project_path, project_name, artifact, and configurations are omitted unless overridden.
+  "build": {
+    "import_project": true,
+    "default_clean": true,
+    "command": [
+      "stm32cubeidec",
+      "--launcher.suppressErrors",
+      "-nosplash",
+      "-consolelog",
+      "-application",
+      "org.eclipse.cdt.managedbuilder.core.headlessbuild"
+    ]
+  },
+  // Optional debug overrides. Derived elf_path is omitted unless overridden.
+  "debug": {
+    "server": "stlink-gdb-server",
+    "gdb_port": 55001,
+    "swo_port": 55002
+  }
+}

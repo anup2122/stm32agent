@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stm32cubep-mcp"
+version = "0.8.0"
+description = "STM32 tool-domain and orchestration MCP servers"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.9.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2.2",
+]
+
+[project.scripts]
+stm32cubep-mcp = "stm32cubep_mcp.server:main"
+stm32cubeprogrammer-mcp = "stm32cubep_mcp.server:main"
+stm32-build-mcp = "stm32cubep_mcp.build.server:main"
+stm32-debug-mcp = "stm32cubep_mcp.debug.server:main"
+stm32-cubemx-mcp = "stm32cubep_mcp.cubemx.server:main"
+stm32-orchestrator-mcp = "stm32cubep_mcp.orchestrator.server:main"
+stm32-requirements-mcp = "stm32cubep_mcp.requirements.server:main"
+stm32-ioc-builder-mcp = "stm32cubep_mcp.ioc_builder.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+stm32cubep_mcp = ["schemas/*.json"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

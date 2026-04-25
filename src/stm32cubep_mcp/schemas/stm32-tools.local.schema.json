@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/stm32-tools.local.schema.json",
+  "title": "STM32 Agent Toolchain Local Host Tools",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "tools"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cube_programmer": {
+          "$ref": "#/$defs/toolDefinition"
+        },
+        "cubeide": {
+          "$ref": "#/$defs/toolDefinition"
+        },
+        "stlink_gdb_server": {
+          "$ref": "#/$defs/toolDefinition"
+        },
+        "arm_gdb": {
+          "$ref": "#/$defs/toolDefinition"
+        },
+        "cubemx": {
+          "$ref": "#/$defs/toolDefinition"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "toolDefinition": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "env_var": {
+              "type": "string"
+            },
+            "executable_name": {
+              "type": "string"
+            },
+            "candidates": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "windows": {
+                  "$ref": "#/$defs/pathList"
+                },
+                "linux": {
+                  "$ref": "#/$defs/pathList"
+                },
+                "darwin": {
+                  "$ref": "#/$defs/pathList"
+                }
+              }
+            }
+          }
+        },
+        "windows": {
+          "$ref": "#/$defs/pathList"
+        },
+        "linux": {
+          "$ref": "#/$defs/pathList"
+        },
+        "darwin": {
+          "$ref": "#/$defs/pathList"
+        }
+      }
+    },
+    "pathList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

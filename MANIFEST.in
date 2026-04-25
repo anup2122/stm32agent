@@ -1,0 +1,5 @@
+include CHANGELOG.md
+include QUICKSTART.md
+include README.md
+recursive-include config *.json *.md
+recursive-include src/stm32cubep_mcp/schemas *.json

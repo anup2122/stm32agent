@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/stm32-project.schema.json",
+  "title": "STM32 Agent Toolchain Project Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "_comment": {
+      "type": "string"
+    },
+    "project_name": {
+      "type": "string"
+    },
+    "generated_root": {
+      "type": "string"
+    },
+    "project_toolchain": {
+      "type": "string"
+    },
+    "build_system": {
+      "type": "string"
+    },
+    "default_configuration": {
+      "type": "string"
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "mcu": {
+          "type": "string"
+        },
+        "interface": {
+          "type": "string"
+        },
+        "connect_defaults": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "firmware": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "default_artifact": {
+          "type": "string"
+        },
+        "flash_address": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "ioc_path": {
+          "type": "string"
+        }
+      }
+    },
+    "cubemx": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "project_name": {
+          "type": "string"
+        },
+        "project_toolchain": {
+          "type": "string"
+        },
+        "project_path": {
+          "type": "string"
+        },
+        "script_path": {
+          "type": "string"
+        },
+        "log_path": {
+          "type": "string"
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "project_path": {
+          "type": "string"
+        },
+        "project_name": {
+          "type": "string"
+        },
+        "default_configuration": {
+          "type": "string"
+        },
+        "configurations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "import_project": {
+          "type": "boolean"
+        },
+        "default_clean": {
+          "type": "boolean"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifact": {
+          "type": "string"
+        }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "gdb": {
+          "type": "string"
+        },
+        "elf_path": {
+          "type": "string"
+        },
+        "gdb_port": {
+          "type": "integer"
+        },
+        "swo_port": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

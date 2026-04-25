@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/stm32cubep/requirements-ioc-contract.schema.json",
+  "title": "Requirement Decomposition to IOC Builder Contract",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "source_prompt",
+    "target",
+    "defaults",
+    "planning",
+    "execution_policy",
+    "core_features",
+    "pluggable_features",
+    "current_increment",
+    "interface_intents",
+    "assumptions",
+    "open_questions",
+    "plan_file"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "const": "2026-04-24.phase3.v1"
+    },
+    "source_prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "object",
+      "required": ["board_id", "mcu"],
+      "properties": {
+        "board_id": { "type": "string", "minLength": 1 },
+        "mcu": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "defaults": {
+      "type": "object",
+      "required": ["toolchain"],
+      "properties": {
+        "toolchain": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "planning": {
+      "type": "object",
+      "required": ["horizon", "increment_strategy"],
+      "properties": {
+        "horizon": { "type": "string", "minLength": 1 },
+        "core_first": { "type": "boolean" },
+        "increment_strategy": { "type": "string", "minLength": 1 },
+        "feature_progression": { "type": "string" },
+        "plan_format": { "type": "string" },
+        "status_file": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "execution_policy": {
+      "type": "object",
+      "properties": {
+        "ioc_cubemx_validation": {
+          "type": "string",
+          "enum": ["best_effort", "required"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "core_features": {
+      "type": "array"
+    },
+    "pluggable_features": {
+      "type": "array"
+    },
+    "current_increment": {
+      "type": "object",
+      "required": ["id", "feature_ids"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "feature_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": true
+    },
+    "interface_intents": {
+      "type": "array"
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "plan_file": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
