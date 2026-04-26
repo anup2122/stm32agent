@@ -1,21 +1,472 @@
 from __future__ import annotations
 
-from .classifiers import SUPPORTED_PROMPT_FAMILIES
+import re
+
+from .classifiers import SUPPORTED_PROMPT_FAMILIES, looks_like_engineering_feature_spec
 from .policy import derive_execution_policy
 from ..project_model import IntentBundle
 
+GENERIC_ENGINEERING_FEATURE_ID = "core-generic-engineering-spec"
+GENERIC_ENGINEERING_HINT_PATTERN = re.compile(
+    r"\b(?:TIM\d+|USART\d+|UART\d+|SPI\d+|I2C\d+|ADC\d+|DAC\d+|DMA|PWM|GPIO|EXTI|RCC|SYSCLK|SystemCoreClock|WWDG|watchdog|Hardfault|RTC|Alarm|LSI|LSE)\b",
+    re.IGNORECASE,
+)
+GENERIC_CLOCK_HINT_PATTERN = re.compile(r"\b(\d+(?:\.\d+)?)\s*mhz\b", re.IGNORECASE)
+TIMER_INSTANCE_PATTERN = re.compile(r"\b(TIM\d+)\b", re.IGNORECASE)
+CHANNEL_PATTERN = re.compile(r"\bchannel\s*(\d+)\b", re.IGNORECASE)
+FREQUENCY_PATTERN = re.compile(r"\bfrequency(?:\s+equal\s+to|\s+of)?\s*(\d+(?:\.\d+)?)\s*(khz|hz)\b", re.IGNORECASE)
+PRESCALER_PATTERN = re.compile(r"\bprescaler\s*=\s*(\d+)\b", re.IGNORECASE)
+REPETITION_COUNTER_PATTERN = re.compile(r"\bcounter repetition\s*=\s*(\d+)\b", re.IGNORECASE)
+COMPARE_REGISTER_PATTERN = re.compile(r"(?:\b|_)CCR(\d+)\b", re.IGNORECASE)
+DMA_UPDATE_PERIOD_PATTERN = re.compile(r"\beach\s+(\d+)\s+update requests\b", re.IGNORECASE)
+DEBUG_UART_TEST_PATTERN = re.compile(
+    r"\b(send messages?|print statements?|uart|serial|vcp)\b.*\b(host|pc)\b|\b(host|pc)\b.*\b(uart|serial|vcp)\b",
+    re.IGNORECASE,
+)
+WWDG_TIMEOUT_MS_PATTERN = re.compile(r"\bWWDG timeout is set\b.*?\bto\s+(\d+(?:[.,]\d+)?)\s*ms\b", re.IGNORECASE | re.DOTALL)
+WWDG_REFRESH_INTERVAL_MS_PATTERN = re.compile(
+    r"\brefreshed each\s+(\d+(?:[.,]\d+)?)\s*ms\b|\bwait\s+(\d+(?:[.,]\d+)?)\s*ms\b.*?\bbefore writing again counter\b",
+    re.IGNORECASE | re.DOTALL,
+)
+WWDG_RESET_COUNTER_PATTERN = re.compile(r"\bfalls to\s+0x([0-9a-f]+)\b", re.IGNORECASE)
+RESET_LED_HOLD_SECONDS_PATTERN = re.compile(r"\bturned ON for\s+(\d+(?:[.,]\d+)?)\s*seconds\b", re.IGNORECASE)
+RTC_INITIAL_TIME_PATTERN = re.compile(
+    r"\btime\s+is\s+set\s+to\s+(\d{2}):(\d{2}):(\d{2})\b",
+    re.IGNORECASE,
+)
+RTC_ALARM_TIME_PATTERN = re.compile(
+    r"\balarm\b.*?\bon\s+(\d{2}):(\d{2}):(\d{2})\b",
+    re.IGNORECASE | re.DOTALL,
+)
+RTC_ALARM_AFTER_SECONDS_PATTERN = re.compile(
+    r"\balarm\b.*?\bafter\s+(\d+)\s+seconds\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
-def plan_feature_split(
+
+def _time_tuple_from_match(match: re.Match[str] | None) -> tuple[int, int, int] | None:
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+def _decimal_number(value: str | None) -> float | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().replace(",", ".")
+    if not normalized:
+        return None
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def _contains_token(lowered: str, token: str) -> bool:
+    if " " in token:
+        return token in lowered
+    return bool(re.search(rf"\b{re.escape(token)}\b", lowered))
+
+
+def _contains_any_token(lowered: str, tokens: tuple[str, ...]) -> bool:
+    return any(_contains_token(lowered, token) for token in tokens)
+
+
+def _extract_engineering_spec_metadata(prompt: str) -> dict[str, object]:
+    hints = [match.group(0).upper() for match in GENERIC_ENGINEERING_HINT_PATTERN.finditer(prompt)]
+    unique_hints: list[str] = []
+    for hint in hints:
+        if hint not in unique_hints:
+            unique_hints.append(hint)
+
+    clock_match = GENERIC_CLOCK_HINT_PATTERN.search(prompt)
+    clock_mhz = float(clock_match.group(1)) if clock_match is not None else None
+
+    return {
+        "spec_kind": "generic_engineering_spec",
+        "prompt_hints": unique_hints,
+        "clock_mhz": clock_mhz,
+        "raw_prompt": prompt,
+    }
+
+
+def _frequency_hz_from_prompt(prompt: str) -> float | None:
+    match = FREQUENCY_PATTERN.search(prompt)
+    if match is None:
+        return None
+    magnitude = float(match.group(1))
+    unit = match.group(2).lower()
+    return magnitude * 1000.0 if unit == "khz" else magnitude
+
+
+def _engineering_spec_details(prompt: str, metadata: dict[str, object]) -> dict[str, object]:
+    lowered = prompt.lower()
+    timer_match = TIMER_INSTANCE_PATTERN.search(prompt)
+    channel_match = CHANNEL_PATTERN.search(prompt)
+    compare_register_match = COMPARE_REGISTER_PATTERN.search(prompt)
+    prescaler_match = PRESCALER_PATTERN.search(prompt)
+    repetition_counter_match = REPETITION_COUNTER_PATTERN.search(prompt)
+    dma_update_period_match = DMA_UPDATE_PERIOD_PATTERN.search(prompt)
+    wwdg_timeout_match = WWDG_TIMEOUT_MS_PATTERN.search(prompt)
+    wwdg_refresh_interval_match = WWDG_REFRESH_INTERVAL_MS_PATTERN.search(prompt)
+    wwdg_reset_counter_match = WWDG_RESET_COUNTER_PATTERN.search(prompt)
+    reset_led_hold_match = RESET_LED_HOLD_SECONDS_PATTERN.search(prompt)
+    rtc_initial_time_match = RTC_INITIAL_TIME_PATTERN.search(prompt)
+    rtc_alarm_time_match = RTC_ALARM_TIME_PATTERN.search(prompt)
+    rtc_alarm_after_seconds_match = RTC_ALARM_AFTER_SECONDS_PATTERN.search(prompt)
+
+    clock_mhz = metadata.get("clock_mhz")
+    clock_hz = int(float(clock_mhz) * 1_000_000) if isinstance(clock_mhz, (int, float)) else None
+    refresh_interval_match_value = None
+    if wwdg_refresh_interval_match is not None:
+        refresh_interval_match_value = wwdg_refresh_interval_match.group(1) or wwdg_refresh_interval_match.group(2)
+
+    return {
+        "timer_instance": timer_match.group(1).upper() if timer_match is not None else None,
+        "channel": int(channel_match.group(1)) if channel_match is not None else None,
+        "frequency_hz": _frequency_hz_from_prompt(prompt),
+        "prescaler": int(prescaler_match.group(1)) if prescaler_match is not None else None,
+        "repetition_counter": int(repetition_counter_match.group(1)) if repetition_counter_match is not None else None,
+        "compare_register": f"CCR{compare_register_match.group(1)}" if compare_register_match is not None else None,
+        "dma_update_period": int(dma_update_period_match.group(1)) if dma_update_period_match is not None else None,
+        "clock_hz": clock_hz,
+        "complementary_output": "complementary pwm" in lowered or "complementary output" in lowered,
+        "requires_dma": "dma" in lowered,
+        "requires_host_debug_uart": DEBUG_UART_TEST_PATTERN.search(prompt) is not None,
+        "requires_wwdg": "wwdg" in lowered or "window watchdog" in lowered,
+        "requires_rtc_alarm": "rtc" in lowered and "alarm" in lowered,
+        "requires_led_status": "led2" in lowered or "toggling" in lowered or "turned on for" in lowered,
+        "requires_user_button_exti": "exti line" in lowered or "user push-button" in lowered or "pc.13" in lowered,
+        "fault_injection_hardfault": "hardfault" in lowered or "invalid address" in lowered,
+        "standalone_required": "standalone mode" in lowered or "not in debug" in lowered,
+        "wwdg_timeout_ms": _decimal_number(wwdg_timeout_match.group(1)) if wwdg_timeout_match is not None else None,
+        "wwdg_refresh_interval_ms": _decimal_number(refresh_interval_match_value),
+        "wwdg_reset_counter_hex": f"0x{wwdg_reset_counter_match.group(1).upper()}" if wwdg_reset_counter_match is not None else None,
+        "reset_led_hold_seconds": _decimal_number(reset_led_hold_match.group(1)) if reset_led_hold_match is not None else None,
+        "rtc_clock_source": "LSE" if "use also lse as rtc clock source" in lowered or "use lse as rtc clock source" in lowered else "LSI",
+        "rtc_initial_time_hms": _time_tuple_from_match(rtc_initial_time_match),
+        "rtc_alarm_time_hms": _time_tuple_from_match(rtc_alarm_time_match),
+        "rtc_alarm_after_seconds": int(rtc_alarm_after_seconds_match.group(1)) if rtc_alarm_after_seconds_match is not None else None,
+    }
+
+
+def _plan_engineering_spec_features(
     prompt: str,
+    metadata: dict[str, object],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], list[str], list[str]]:
-    lowered = prompt.strip().lower()
+    details = _engineering_spec_details(prompt, metadata)
     core_features: list[dict[str, object]] = []
     pluggable_features: list[dict[str, object]] = []
     interface_intents: list[dict[str, object]] = []
     assumptions: list[str] = []
     open_questions: list[str] = []
 
-    if any(token in lowered for token in ("blink", "led", "toggle")):
+    clock_hz = details.get("clock_hz")
+    if isinstance(clock_hz, int) and clock_hz > 0:
+        core_features.append(
+            {
+                "id": f"core-clock-{clock_hz}",
+                "title": f"Configure system clock to {clock_hz} Hz",
+                "kind": "core",
+                "summary": "Establish the requested system clock before peripheral feature delivery starts.",
+                "interface_intent_ids": ["iface-clock-system"],
+                "spec": {"clock_hz": clock_hz},
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-clock-system",
+                "type": "clock",
+                "role": "system_clock",
+                "sysclk_hz": clock_hz,
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("The engineering specification's system clock requirement should be satisfied before timer and DMA features are validated.")
+
+    if details.get("requires_led_status"):
+        core_features.append(
+            {
+                "id": "core-led2-status-output",
+                "title": "Configure LED2 status output",
+                "kind": "core",
+                "summary": "Drive the on-board LED so the firmware can expose running, reset, and error status states.",
+                "interface_intent_ids": ["iface-led-pa5"],
+                "spec": {
+                    "pin": "PA5",
+                    "label": "LD2 [green Led]",
+                    "signal": "GPIO_Output",
+                    "reset_hold_seconds": details.get("reset_led_hold_seconds"),
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-led-pa5",
+                "type": "gpio",
+                "role": "led_output",
+                "pin": "PA5",
+                "label": "LD2 [green Led]",
+                "signal": "GPIO_Output",
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("PA5 is the default LED2 pin on NUCLEO-L476RG for run-state and reset-state indication.")
+
+    if details.get("requires_wwdg"):
+        core_features.append(
+            {
+                "id": "core-wwdg-supervision",
+                "title": "Configure WWDG supervision",
+                "kind": "core",
+                "summary": "Enable the window watchdog so the firmware can refresh it during normal operation and allow a reset during a simulated failure.",
+                "interface_intent_ids": ["iface-wwdg-supervision"],
+                "spec": {
+                    "timeout_ms": details.get("wwdg_timeout_ms"),
+                    "refresh_interval_ms": details.get("wwdg_refresh_interval_ms"),
+                    "reset_counter_hex": details.get("wwdg_reset_counter_hex"),
+                    "standalone_required": bool(details.get("standalone_required")),
+                    "fault_injection_hardfault": bool(details.get("fault_injection_hardfault")),
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-wwdg-supervision",
+                "type": "watchdog",
+                "role": "window_watchdog",
+                "instance": "WWDG",
+                "timeout_ms": details.get("wwdg_timeout_ms"),
+                "refresh_interval_ms": details.get("wwdg_refresh_interval_ms"),
+                "reset_counter_hex": details.get("wwdg_reset_counter_hex"),
+                "standalone_required": bool(details.get("standalone_required")),
+                "fault_injection_hardfault": bool(details.get("fault_injection_hardfault")),
+                "source": "engineering_spec",
+            }
+        )
+        if details.get("standalone_required"):
+            assumptions.append("Runtime validation should respect the prompt's standalone-mode requirement and avoid depending on an attached debugger.")
+
+    if details.get("requires_rtc_alarm"):
+        core_features.append(
+            {
+                "id": "core-rtc-alarm",
+                "title": "Configure RTC alarm",
+                "kind": "core",
+                "summary": "Enable the RTC base, set the requested time, and arm Alarm A in interrupt mode before optional host diagnostics are layered on.",
+                "interface_intent_ids": ["iface-rtc-alarm-a"],
+                "spec": {
+                    "instance": "RTC",
+                    "clock_source": details.get("rtc_clock_source"),
+                    "initial_time_hms": details.get("rtc_initial_time_hms"),
+                    "alarm_time_hms": details.get("rtc_alarm_time_hms"),
+                    "alarm_after_seconds": details.get("rtc_alarm_after_seconds"),
+                    "interrupt_mode": True,
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-rtc-alarm-a",
+                "type": "rtc",
+                "role": "alarm_a",
+                "instance": "RTC",
+                "clock_source": details.get("rtc_clock_source"),
+                "initial_time_hms": details.get("rtc_initial_time_hms"),
+                "alarm_time_hms": details.get("rtc_alarm_time_hms"),
+                "alarm_after_seconds": details.get("rtc_alarm_after_seconds"),
+                "interrupt_mode": True,
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("The RTC alarm flow should use the board's default LSI clock source unless the prompt explicitly requires LSE.")
+        if details.get("rtc_initial_time_hms") is None or details.get("rtc_alarm_time_hms") is None:
+            assumptions.append("The prompt describes an RTC alarm scenario, but the firmware may need a deterministic fallback time if the requested alarm timestamps are incomplete.")
+
+    timer_instance = details.get("timer_instance")
+    channel = details.get("channel")
+    frequency_hz = details.get("frequency_hz")
+    if isinstance(timer_instance, str) and isinstance(channel, int):
+        timer_intent_id = f"iface-{timer_instance.lower()}-ch{channel}-pwm"
+        timer_feature_id = (
+            f"core-{timer_instance.lower()}-ch{channel}-complementary-pwm"
+            if details.get("complementary_output")
+            else f"core-{timer_instance.lower()}-ch{channel}-pwm"
+        )
+        core_features.append(
+            {
+                "id": timer_feature_id,
+                "title": f"Configure {timer_instance} channel {channel} PWM output",
+                "kind": "core",
+                "summary": "Create the requested timer PWM output before modulation and diagnostics are added.",
+                "interface_intent_ids": [timer_intent_id],
+                "spec": {
+                    "instance": timer_instance,
+                    "channel": channel,
+                    "frequency_hz": frequency_hz,
+                    "prescaler": details.get("prescaler"),
+                    "repetition_counter": details.get("repetition_counter"),
+                    "complementary_output": bool(details.get("complementary_output")),
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": timer_intent_id,
+                "type": "timer_pwm",
+                "role": "complementary_pwm_output" if details.get("complementary_output") else "pwm_output",
+                "instance": timer_instance,
+                "channel": channel,
+                "frequency_hz": frequency_hz,
+                "prescaler": details.get("prescaler"),
+                "repetition_counter": details.get("repetition_counter"),
+                "complementary_output": bool(details.get("complementary_output")),
+                "target_compare_register": details.get("compare_register"),
+                "source": "engineering_spec",
+            }
+        )
+
+    if details.get("requires_dma") and isinstance(timer_instance, str):
+        dma_intent_id = f"iface-{timer_instance.lower()}-dma-update"
+        compare_register = details.get("compare_register") or "CCR?"
+        pluggable_features.append(
+            {
+                "id": f"pluggable-{timer_instance.lower()}-{str(compare_register).lower()}-dma-update",
+                "title": f"Add DMA-driven updates for {timer_instance} {compare_register}",
+                "kind": "pluggable",
+                "summary": "Layer DMA-based modulation onto the already working timer output.",
+                "interface_intent_ids": [dma_intent_id],
+                "spec": {
+                    "instance": timer_instance,
+                    "target_register": compare_register,
+                    "trigger": "update",
+                    "update_period": details.get("dma_update_period"),
+                    "repetition_counter": details.get("repetition_counter"),
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": dma_intent_id,
+                "type": "dma_binding",
+                "role": "memory_to_timer_compare",
+                "peripheral": timer_instance,
+                "target_register": compare_register,
+                "trigger": "update",
+                "update_period": details.get("dma_update_period"),
+                "repetition_counter": details.get("repetition_counter"),
+                "source": "engineering_spec",
+            }
+        )
+
+    if details.get("requires_user_button_exti"):
+        pluggable_features.append(
+            {
+                "id": "pluggable-user-button-fault-trigger",
+                "title": "User button fault trigger",
+                "kind": "pluggable",
+                "summary": "Capture the on-board user button as an EXTI trigger so firmware can simulate the requested software failure path.",
+                "interface_intent_ids": ["iface-button-pc13"],
+                "spec": {
+                    "pin": "PC13",
+                    "fault_injection_hardfault": bool(details.get("fault_injection_hardfault")),
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-button-pc13",
+                "type": "gpio_exti",
+                "role": "user_button",
+                "pin": "PC13",
+                "label": "B1 [Blue PushButton]",
+                "signal": "GPXTI13",
+                "fault_injection_hardfault": bool(details.get("fault_injection_hardfault")),
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("PC13 is the default user button input pin on NUCLEO-L476RG for the EXTI-triggered fault path.")
+
+    if details.get("requires_host_debug_uart"):
+        pluggable_features.append(
+            {
+                "id": "pluggable-host-debug-uart",
+                "title": "Host-side debug UART instrumentation",
+                "kind": "pluggable",
+                "summary": "Add optional host-visible debug prints guarded by _DEBUG_PRINT for testing and diagnosis.",
+                "interface_intent_ids": ["iface-host-debug-uart"],
+                "spec": {
+                    "instance_preference": "USART2",
+                    "baud_rate": 115200,
+                    "macro_guard": "_DEBUG_PRINT",
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-host-debug-uart",
+                "type": "uart",
+                "role": "debug_console",
+                "instance_preference": "USART2",
+                "baud_rate": 115200,
+                "macro_guard": "_DEBUG_PRINT",
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("When runtime visibility is needed, the board's ST-LINK virtual COM path should be used for guarded debug prints.")
+
+    if not core_features:
+        core_features.append(
+            {
+                "id": GENERIC_ENGINEERING_FEATURE_ID,
+                "title": "Translate engineering specification into an IOC baseline workflow",
+                "kind": "core",
+                "summary": "Start from the official board IOC baseline and preserve the engineering specification for later compiler passes.",
+                "interface_intent_ids": [],
+                "delivery_mode": "generic_engineering_spec",
+            }
+        )
+        open_questions.append(
+            "The engineering specification was recognized, but no concrete core feature could be extracted yet."
+        )
+
+    open_questions.append(
+        "Downstream IOC compilation for advanced engineering intents is still being expanded increment by increment."
+    )
+    return core_features, pluggable_features, interface_intents, assumptions, open_questions
+
+
+def plan_feature_split(
+    prompt: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], list[str], list[str]]:
+    lowered = prompt.strip().lower()
+    if looks_like_engineering_feature_spec(prompt):
+        engineering_metadata = _extract_engineering_spec_metadata(prompt)
+        core_features, pluggable_features, interface_intents, assumptions, open_questions = _plan_engineering_spec_features(
+            prompt,
+            engineering_metadata,
+        )
+        if _contains_any_token(lowered, ("test", "run and test", "verify", "validate")):
+            pluggable_features.append(
+                {
+                    "id": "pluggable-runtime-check",
+                    "title": "Runtime verification",
+                    "kind": "pluggable",
+                    "summary": "Run flash-time and post-flash verification after the core delivery increments succeed.",
+                    "interface_intent_ids": [],
+                    "delivery_mode": "policy_only",
+                }
+            )
+        assumptions.append("Board-targeted engineering specifications should enter the baseline IOC workflow even when later firmware increments still need implementation.")
+        return core_features, pluggable_features, interface_intents, assumptions, open_questions
+
+    core_features: list[dict[str, object]] = []
+    pluggable_features: list[dict[str, object]] = []
+    interface_intents: list[dict[str, object]] = []
+    assumptions: list[str] = []
+    open_questions: list[str] = []
+
+    if _contains_any_token(lowered, ("blink", "led", "toggle")):
         core_features.append(
             {
                 "id": "core-led-blink",
@@ -37,7 +488,10 @@ def plan_feature_split(
         )
         assumptions.append("PA5 is the default user LED output pin on NUCLEO-L476RG.")
 
-    if "pc" in lowered and any(token in lowered for token in ("send data", "send", "transmit", "printf", "uart", "serial")):
+    if _contains_token(lowered, "pc") and _contains_any_token(
+        lowered,
+        ("send data", "sends data", "send", "sends", "sending", "transmit", "printf", "uart", "serial"),
+    ):
         core_features.append(
             {
                 "id": "core-uart-device-to-pc",
@@ -59,7 +513,7 @@ def plan_feature_split(
         )
         assumptions.append("USART2 over the ST-LINK virtual COM path is the default device-to-PC transport for NUCLEO-L476RG.")
 
-    if any(token in lowered for token in ("button", "pushbutton", "blue button", "user button")):
+    if _contains_any_token(lowered, ("button", "pushbutton", "blue button", "user button")):
         pluggable_features.append(
             {
                 "id": "pluggable-user-button-event",
@@ -86,7 +540,7 @@ def plan_feature_split(
             "The initial Phase 2 scaffold only recognizes the first supported device-to-PC serial prompt family."
         )
 
-    if any(token in lowered for token in ("test", "run and test", "verify", "validate")):
+    if _contains_any_token(lowered, ("test", "run and test", "verify", "validate")):
         pluggable_features.append(
             {
                 "id": "pluggable-runtime-check",
@@ -104,6 +558,9 @@ def plan_feature_split(
 def build_intent_bundle(prompt: str) -> IntentBundle:
     core_features, pluggable_features, interface_intents, assumptions, open_questions = plan_feature_split(prompt)
     has_supported_delivery = bool(core_features or interface_intents)
+    extra: dict[str, object] = {"supported_prompt_families": list(SUPPORTED_PROMPT_FAMILIES)}
+    if looks_like_engineering_feature_spec(prompt):
+        extra["engineering_spec"] = _extract_engineering_spec_metadata(prompt)
     return IntentBundle(
         intent_kind="feature_delivery" if has_supported_delivery else "unsupported_feature_request",
         confidence=0.95 if has_supported_delivery else 0.35,
@@ -113,5 +570,5 @@ def build_intent_bundle(prompt: str) -> IntentBundle:
         runtime_expectations=derive_execution_policy(prompt),
         assumptions=assumptions,
         open_questions=open_questions,
-        extra={"supported_prompt_families": list(SUPPORTED_PROMPT_FAMILIES)},
+        extra=extra,
     )

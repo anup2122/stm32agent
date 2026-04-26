@@ -34,6 +34,8 @@ def inferred_project_name(contract: dict[str, object]) -> str:
 
     if UART_CORE_FEATURE_ID in feature_ids:
         return f"{board_id}-UART2-printf"
+    if "core-rtc-alarm" in feature_ids:
+        return f"{board_id}-RTC-Alarm"
     if "core-led-blink" in feature_ids and "pluggable-user-button-event" in feature_ids:
         return f"{board_id}-button-led"
     if "core-led-blink" in feature_ids:

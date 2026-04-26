@@ -63,6 +63,7 @@ def legacy_requirements_dict_from_intent_bundle(bundle: IntentBundle | object) -
         "open_questions": list(normalized.open_questions),
         "intent_kind": normalized.intent_kind,
         "confidence": normalized.confidence,
+        "intent_metadata": deepcopy(normalized.extra),
     }
 
 

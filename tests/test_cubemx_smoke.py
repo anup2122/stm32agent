@@ -151,6 +151,8 @@ PA5.GPIO_Label=LED_STATUS
             [
                 str((project_root / "Projects" / "STM32CubeIDE" / ".project").resolve()),
                 str((project_root / "Projects" / "STM32CubeIDE" / ".cproject").resolve()),
+                str((project_root / "board" / "Projects" / "STM32CubeIDE" / ".project").resolve()),
+                str((project_root / "board" / "Projects" / "STM32CubeIDE" / ".cproject").resolve()),
             ],
         )
 

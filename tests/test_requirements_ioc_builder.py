@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from stm32cubep_mcp.application.services import workflow_state
 from stm32cubep_mcp.ioc_builder import server as ioc_builder_server
 from stm32cubep_mcp.requirements.policy import derive_execution_policy
 from stm32cubep_mcp.requirements import server as requirements_server
@@ -30,6 +31,37 @@ class RequirementPhase2Tests(unittest.TestCase):
             "Mcu.PinsNb=2",
             "",
         ])
+
+    def sample_l476_tim1_index(self) -> dict[str, object]:
+        return {
+            "mcu_catalog": {
+                "STM32L476R(C-E-G)Tx": {
+                    "refname": "STM32L476R(C-E-G)Tx",
+                    "family": "STM32L4",
+                    "line": "STM32L4x6",
+                    "package": "LQFP64",
+                    "ips": ["RCC", "SYS", "NVIC", "TIM1", "USART2", "DMA"],
+                    "pin_signals": {
+                        "PA10": ["TIM1_CH3"],
+                        "PB1": ["TIM1_CH3N"],
+                        "PB15": ["TIM1_CH3N"],
+                    },
+                    "signal_pins": {
+                        "TIM1_CH3": ["PA10"],
+                        "TIM1_CH3N": ["PB1", "PB15"],
+                    },
+                }
+            },
+            "family_config_index": {
+                "STM32L4xx": ["TIM-STM32L4xx_Configs.xml", "DMA-STM32L4xx_Configs.xml"],
+            },
+            "dma_ll_mapping": {
+                "STM32L4xx": [
+                    {"Value": "DMA_REQUEST_TIM1_UP"},
+                    {"Value": "DMA_REQUEST_TIM1_CH3"},
+                ]
+            },
+        }
 
     def test_policy_classifier_distinguishes_strict_build_only_prompt(self) -> None:
         policy = derive_execution_policy("Create a NUCLEO-L476RG project, build only, do not flash, and run and test it later")
@@ -124,17 +156,181 @@ class RequirementPhase2Tests(unittest.TestCase):
             "This project has to be tested with NUCLEO-L476RG Rev C. "
             "The objective is to configure TIM1 channel 3 complementary PWM with DMA updating CCR3 at 80 MHz."
         )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            plan_file = Path(temp_dir) / "plan.md"
-            contract = requirements_server.build_requirements_contract(prompt)
-            contract["plan_file"] = str(plan_file)
-            with patch("stm32cubep_mcp.requirements.server.build_requirements_contract", return_value=contract):
-                result = requirements_server.stm32_requirements_decompose(prompt, persist_plan=True)
+        result = requirements_server.stm32_requirements_decompose(prompt, persist_plan=False)
 
-        self.assertFalse(result["success"])
-        self.assertIn("not implemented", result["plan_artifact"]["plan"]["current_stage_message"])
+        self.assertTrue(result["success"])
         self.assertEqual(result["contract"]["project_context"]["kind"], "new_project")
-        self.assertEqual(result["contract"]["increments"], [])
+        self.assertEqual(
+            [increment["feature_ids"] for increment in result["contract"]["increments"]],
+            [["core-clock-80000000"], ["core-tim1-ch3-complementary-pwm"], ["pluggable-tim1-ccr3-dma-update"]],
+        )
+        self.assertCountEqual(
+            result["contract"]["intent_metadata"]["engineering_spec"]["prompt_hints"],
+            ["TIM1", "PWM", "DMA"],
+        )
+
+    def test_requirements_decompose_does_not_confuse_displayed_with_led_feature(self) -> None:
+        prompt = (
+            "Write a program for NUCLEO-L476RG Rev C that configures TIM1 channel 3 complementary PWM with DMA, "
+            "and note that the PWM waveform can be displayed using an oscilloscope."
+        )
+        result = requirements_server.stm32_requirements_decompose(prompt, persist_plan=False)
+
+        self.assertTrue(result["success"])
+        self.assertIn("core-tim1-ch3-complementary-pwm", [feature["id"] for feature in result["contract"]["core_features"]])
+        self.assertNotIn("core-led-blink", [feature["id"] for feature in result["contract"]["core_features"]])
+
+    def test_requirements_decompose_breaks_wwdg_prompt_into_core_and_pluggable_increments(self) -> None:
+        prompt = (
+            "Write a program for NUCLEO-L476RG Rev C with SystemClock configured to 80 MHz. "
+            "Configure the WWDG so it is refreshed every 20 ms, LED2 toggles while running, "
+            "and pressing the user push-button on PC.13 triggers an EXTI fault path. "
+            "Where required for testing send messages to host over uart using stm32 vcp. "
+            "This example must be tested in standalone mode and not in debug."
+        )
+
+        result = requirements_server.stm32_requirements_decompose(prompt, persist_plan=False)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            [increment["feature_ids"] for increment in result["contract"]["increments"]],
+            [
+                ["core-clock-80000000"],
+                ["core-led2-status-output"],
+                ["core-wwdg-supervision"],
+                ["pluggable-user-button-fault-trigger"],
+                ["pluggable-host-debug-uart"],
+            ],
+        )
+        intent_ids = [intent["id"] for intent in result["contract"]["interface_intents"]]
+        self.assertIn("iface-wwdg-supervision", intent_ids)
+        self.assertIn("iface-button-pc13", intent_ids)
+        self.assertIn("iface-host-debug-uart", intent_ids)
+
+    def test_requirements_decompose_breaks_rtc_alarm_prompt_into_core_and_pluggable_increments(self) -> None:
+        prompt = (
+            "Write a program with below requirements, build the program, download it to attached device and test it when possible. "
+            "Where requried for testing send messages from device to host over uart and read them on Host side using stm32 vcp. "
+            "This project has to be tested with NUCLEO-L476RG Rev C and the clock is set to 80 MHz. "
+            "Configuration and generation of an RTC alarm using the RTC HAL API. "
+            "The Time is set to 02:20:00 and the Alarm must be generated after 30 seconds on 02:20:30. "
+            "LED2 is turned ON when the RTC Alarm is generated correctly. In case of error, LED2 is toggled with a period of one second."
+        )
+
+        result = requirements_server.stm32_requirements_decompose(prompt, persist_plan=False)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            [increment["feature_ids"] for increment in result["contract"]["increments"]],
+            [
+                ["core-clock-80000000"],
+                ["core-led2-status-output"],
+                ["core-rtc-alarm"],
+                ["pluggable-host-debug-uart"],
+            ],
+        )
+        intent_by_id = {intent["id"]: intent for intent in result["contract"]["interface_intents"]}
+        self.assertIn("iface-rtc-alarm-a", intent_by_id)
+        self.assertEqual(intent_by_id["iface-rtc-alarm-a"]["clock_source"], "LSI")
+        self.assertEqual(intent_by_id["iface-rtc-alarm-a"]["initial_time_hms"], (2, 20, 0))
+        self.assertEqual(intent_by_id["iface-rtc-alarm-a"]["alarm_time_hms"], (2, 20, 30))
+        self.assertEqual(intent_by_id["iface-rtc-alarm-a"]["alarm_after_seconds"], 30)
+        self.assertIn("iface-host-debug-uart", intent_by_id)
+
+    def test_ioc_builder_can_construct_baseline_for_clock_only_engineering_spec_prompt(self) -> None:
+        prompt = (
+            "This project has to be tested with NUCLEO-L476RG Rev C and SystemCoreClock is set to 80 MHz."
+        )
+        contract = requirements_server.build_requirements_contract(prompt)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ioc_path = Path(temp_dir) / "generic-spec.ioc"
+
+            with patch(
+                "stm32cubep_mcp.ioc_builder.server.load_local_board_ioc_lines",
+                return_value={
+                    "success": True,
+                    "match": {"board_id": "NUCLEO-L476RG", "ioc_filename": "B40_Nucleo_NUCLEO-L476RG_STM32L476RG_Board_AllConfig.ioc"},
+                    "ioc_path": str((Path(temp_dir) / "local-board.ioc").resolve()),
+                    "lines": self.sample_base_ioc_text().splitlines(),
+                },
+            ):
+                with patch("stm32cubep_mcp.ioc_builder.server.validate_ioc_with_cubemx", return_value={"success": True, "validation": "accepted"}):
+                    result = ioc_builder_server.construct_ioc_file(contract, ioc_path=str(ioc_path))
+                    constructed_text = ioc_path.read_text(encoding="utf-8")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["construction_source"], "local_board_ioc")
+        self.assertIn("ProjectManager.ProjectFileName=generic-spec.ioc", constructed_text)
+        self.assertIn("ProjectManager.ProjectName=generic-spec", constructed_text)
+        self.assertNotIn("PA5.Signal=GPIO_Output", constructed_text)
+        self.assertNotIn("PA2.Signal=USART2_TX", constructed_text)
+
+    def test_ioc_builder_compiles_timer_core_increment_and_dma_increment(self) -> None:
+        prompt = (
+            "This project has to be tested with NUCLEO-L476RG Rev C. "
+            "The objective is to configure TIM1 channel 3 complementary PWM with DMA updating CCR3 at 80 MHz."
+        )
+        contract = requirements_server.build_requirements_contract(prompt)
+        timer_increment_contract = workflow_state.contract_for_increment(contract, contract["increments"][1])
+        dma_increment_contract = workflow_state.contract_for_increment(contract, contract["increments"][2])
+
+        with patch(
+            "stm32cubep_mcp.ioc_builder.st_mcu_catalog.local_cubemx_db_index",
+            return_value=self.sample_l476_tim1_index(),
+        ):
+            timer_result = ioc_builder_server.synthesize_ioc_change_set(timer_increment_contract)
+            dma_result = ioc_builder_server.synthesize_ioc_change_set(dma_increment_contract)
+
+        self.assertTrue(timer_result["success"])
+        self.assertIn({"key": "TIM1.Channel-PWM Generation3 CH3 CH3N", "value": "TIM_CHANNEL_3"}, timer_result["ioc_properties"])
+        self.assertTrue(dma_result["success"])
+        self.assertIn({"key": "Dma.Request0", "value": "TIM1_CH3"}, dma_result["ioc_properties"])
+        self.assertIn({"key": "Dma.TIM1_CH3.0.Instance", "value": "DMA1_Channel7"}, dma_result["ioc_properties"])
+        self.assertIn(
+            {"key": "NVIC.DMA1_Channel7_IRQn", "value": "true\\:0\\:0\\:false\\:false\\:true\\:false\\:true"},
+            dma_result["ioc_properties"],
+        )
+
+    def test_ioc_builder_compiles_wwdg_increment(self) -> None:
+        prompt = (
+            "Write a program for NUCLEO-L476RG Rev C with SystemClock configured to 80 MHz. "
+            "Configure the WWDG so it is refreshed every 20 ms and resets after the counter falls to 0x3F. "
+            "LED2 is toggling while running and this example must be tested in standalone mode."
+        )
+        contract = requirements_server.build_requirements_contract(prompt)
+        wwdg_increment_contract = workflow_state.contract_for_increment(contract, contract["increments"][2])
+
+        with patch(
+            "stm32cubep_mcp.ioc_builder.st_mcu_catalog.local_cubemx_db_index",
+            return_value={"mcu_catalog": {}, "family_config_index": {}, "dma_ll_mapping": {}},
+        ):
+            result = ioc_builder_server.synthesize_ioc_change_set(wwdg_increment_contract)
+
+        self.assertTrue(result["success"])
+        self.assertIn("WWDG", result["enabled_peripherals"])
+        self.assertIn("VP_WWDG_VS_WWDG", result["used_pins"])
+        self.assertIn({"key": "VP_WWDG_VS_WWDG.Signal", "value": "WWDG_VS_WWDG"}, result["ioc_properties"])
+        self.assertIn({"key": "VP_WWDG_VS_WWDG.Mode", "value": "WWDG_Activate"}, result["ioc_properties"])
+        self.assertTrue(
+            any(
+                item["key"] == "WWDG.Prescaler" and str(item["value"]).startswith("WWDG_PRESCALER_")
+                for item in result["ioc_properties"]
+            )
+        )
+        self.assertTrue(any(item["key"] == "WWDG.Counter" for item in result["ioc_properties"]))
+        self.assertTrue(any(item["key"] == "WWDG.Window" for item in result["ioc_properties"]))
+        self.assertIn({"key": "WWDG.EWIMode", "value": "WWDG_EWI_DISABLE"}, result["ioc_properties"])
+
+    def test_requirements_extracts_dma_target_from_timx_ccr_notation(self) -> None:
+        prompt = (
+            "Use DMA with TIMER Update request to transfer data from memory to TIMER Capture Compare Register 3 (TIMx_CCR3). "
+            "This project has to be tested with NUCLEO-L476RG Rev C and configure TIM1 channel 3 PWM."
+        )
+
+        contract = requirements_server.build_requirements_contract(prompt)
+
+        dma_feature = next(feature for feature in contract["pluggable_features"] if feature["id"].startswith("pluggable-tim1-ccr"))
+        self.assertEqual(dma_feature["id"], "pluggable-tim1-ccr3-dma-update")
 
     def test_requirements_decompose_can_disable_flash_for_build_only_prompt(self) -> None:
         contract = requirements_server.build_requirements_contract("Create a NUCLEO-L476RG project that sends data to PC but build only and do not flash")
@@ -345,6 +541,7 @@ class RequirementPhase2Tests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIn({"key": "PA5.Signal", "value": "GPIO_Output"}, result["ioc_properties"])
         self.assertIn({"key": "PC13.Signal", "value": "GPXTI13"}, result["ioc_properties"])
+        self.assertIn({"key": "NVIC.EXTI15_10_IRQn", "value": "true\\:0\\:0\\:false\\:false\\:true\\:true\\:true"}, result["ioc_properties"])
         self.assertIn("PA5", result["used_pins"])
         self.assertIn("PC13", result["used_pins"])
 

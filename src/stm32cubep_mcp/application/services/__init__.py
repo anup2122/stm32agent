@@ -1,6 +1,40 @@
 """Shared application services."""
 
 from .artifact_service import select_flash_artifact
+from .cubemx_host_service import (
+    configured_cubemx_log_path,
+    cubemx_tool_entry,
+    derive_cubemx_candidates,
+    derive_java_candidates,
+    discover_cubemx,
+    load_build_metadata,
+    load_cubemx_metadata,
+    load_firmware_metadata,
+    project_section_metadata,
+    resolve_cubemx_launcher,
+    resolve_java_path,
+)
+from .cubemx_inspection_service import build_cubemx_capabilities, parse_ioc_summary
+from .cubemx_log_service import write_cubemx_log
+from .cubemx_runtime_service import (
+    cubemx_failure_reason,
+    cubemx_script_reports_success,
+    run_cubemx_command,
+    run_cubemx_command_with_progress,
+    terminate_cubemx_process,
+)
+from .cubemx_tool_service import (
+    orchestrate_cubemx_regeneration,
+    parse_cubemx_ioc,
+    regenerate_cubemx_project,
+    report_cubemx_capabilities,
+)
+from .ioc_builder_service import (
+    apply_ioc_change_set as apply_ioc_change_set_service,
+    collect_ioc_builder_capabilities,
+    compile_ioc_plan,
+    construct_ioc_file as construct_ioc_file_service,
+)
 from .project_config_service import (
     configured_cubemx_request,
     configured_firmware_artifact,
@@ -34,6 +68,33 @@ __all__ = [
     "extract_file_path",
     "is_debug_question",
     "select_flash_artifact",
+    "project_section_metadata",
+    "load_firmware_metadata",
+    "load_build_metadata",
+    "load_cubemx_metadata",
+    "configured_cubemx_log_path",
+    "cubemx_tool_entry",
+    "derive_cubemx_candidates",
+    "derive_java_candidates",
+    "resolve_java_path",
+    "discover_cubemx",
+    "resolve_cubemx_launcher",
+    "build_cubemx_capabilities",
+    "parse_ioc_summary",
+    "report_cubemx_capabilities",
+    "parse_cubemx_ioc",
+    "regenerate_cubemx_project",
+    "orchestrate_cubemx_regeneration",
+    "collect_ioc_builder_capabilities",
+    "compile_ioc_plan",
+    "apply_ioc_change_set_service",
+    "construct_ioc_file_service",
+    "write_cubemx_log",
+    "terminate_cubemx_process",
+    "cubemx_script_reports_success",
+    "cubemx_failure_reason",
+    "run_cubemx_command_with_progress",
+    "run_cubemx_command",
     "normalize_cubemx_toolchain",
     "workspace_project_metadata_path",
     "derived_project_paths",

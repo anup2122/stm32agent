@@ -7,9 +7,8 @@ import re
 from mcp.server.fastmcp import FastMCP
 
 from .. import shared
-from ..application.services import artifact_service, project_config_service, routing_service, workflow_state
+from ..application.services import artifact_service, cubemx_tool_service, project_config_service, routing_service, workflow_state
 from ..application.workflows import build_flash_test as build_flash_test_workflow
-from ..application.workflows import cubemx_regeneration as cubemx_regeneration_workflow
 from ..application.workflows import debug_question as debug_question_workflow
 from ..application.workflows import generate_project as generate_project_workflow
 from ..application.workflows import live_debug as live_debug_workflow
@@ -337,12 +336,12 @@ def stm32_orchestrate_cubemx_regeneration(
     timeout_seconds: int = 900,
     build_timeout_seconds: int = 600,
 ) -> dict[str, object]:
-    return cubemx_regeneration_workflow.orchestrate_cubemx_regeneration(
+    return cubemx_tool_service.orchestrate_cubemx_regeneration(
         validate_build=validate_build,
         timeout_seconds=timeout_seconds,
         build_timeout_seconds=build_timeout_seconds,
-        configured_cubemx_request=configured_cubemx_request,
-        regenerate_project=cubemx_server.stm32_cubemx_regenerate_project,
+        configured_cubemx_request_fn=configured_cubemx_request,
+        regenerate_project_fn=cubemx_server.stm32_cubemx_regenerate_project,
     )
 
 

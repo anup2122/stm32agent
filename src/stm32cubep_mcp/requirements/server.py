@@ -617,6 +617,9 @@ def build_requirements_contract(prompt: str) -> dict[str, object]:
         open_questions=open_questions,
         plan_file=default_plan_file(project_context),
     )
+    intent_metadata = legacy_intent.get("intent_metadata")
+    if isinstance(intent_metadata, dict) and intent_metadata:
+        contract["intent_metadata"] = intent_metadata
     return contract
 
 
@@ -633,6 +636,7 @@ def collect_requirements_capabilities() -> dict[str, object]:
         "default_toolchain": DEFAULT_TOOLCHAIN,
         "notes": [
             "This Phase 2 scaffold produces a deterministic contract for IOC synthesis.",
+            "Board-targeted engineering specifications now enter the generic IOC baseline workflow even before feature-specific translation is complete.",
             "LLM-backed prompt interpretation can be layered on top of this contract later.",
             "A Markdown plan artifact writer is available so orchestrated workflows can persist stage progress and failures.",
         ],
