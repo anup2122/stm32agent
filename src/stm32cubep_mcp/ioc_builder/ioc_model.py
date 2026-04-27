@@ -121,6 +121,124 @@ def _merge_ip_parameters(existing: object, additions: list[str]) -> str:
     return ",".join(merged)
 
 
+def _rcc_msi_pll_80mhz_properties(sysclk_hz: int | None) -> dict[str, object]:
+    target_hz = sysclk_hz if isinstance(sysclk_hz, int) and sysclk_hz > 0 else 80_000_000
+    vco_input_hz = 4_000_000
+    pll_r_divider = 2
+    pll_n = max(8, min(86, int((target_hz * pll_r_divider) / vco_input_hz)))
+    vco_output_hz = vco_input_hz * pll_n
+    pllclk_hz = int(vco_output_hz / pll_r_divider)
+    bus_hz = target_hz if pllclk_hz == target_hz else pllclk_hz
+
+    rcc_parameters = [
+        "ADCFreq_Value",
+        "AHBFreq_Value",
+        "APB1Freq_Value",
+        "APB1TimFreq_Value",
+        "APB2Freq_Value",
+        "APB2TimFreq_Value",
+        "CortexFreq_Value",
+        "DFSDMFreq_Value",
+        "FCLKCortexFreq_Value",
+        "FamilyName",
+        "HCLKFreq_Value",
+        "HSE_VALUE",
+        "HSI_VALUE",
+        "I2C1Freq_Value",
+        "I2C2Freq_Value",
+        "I2C3Freq_Value",
+        "LPTIM1Freq_Value",
+        "LPTIM2Freq_Value",
+        "LPUART1Freq_Value",
+        "LSCOPinFreq_Value",
+        "LSI_VALUE",
+        "MCO1PinFreq_Value",
+        "MSI_VALUE",
+        "PLLN",
+        "PLLPoutputFreq_Value",
+        "PLLQoutputFreq_Value",
+        "PLLRCLKFreq_Value",
+        "PLLSAI1PoutputFreq_Value",
+        "PLLSAI1QoutputFreq_Value",
+        "PLLSAI1RoutputFreq_Value",
+        "PLLSAI2PoutputFreq_Value",
+        "PLLSAI2RoutputFreq_Value",
+        "PLLSourceVirtual",
+        "PREFETCH_ENABLE",
+        "PWRFreq_Value",
+        "RCC_MCO1Source",
+        "RCC_MCODiv",
+        "RNGFreq_Value",
+        "SAI1Freq_Value",
+        "SAI2Freq_Value",
+        "SDMMCFreq_Value",
+        "SWPMI1Freq_Value",
+        "SYSCLKFreq_VALUE",
+        "SYSCLKSource",
+        "UART4Freq_Value",
+        "UART5Freq_Value",
+        "USART1Freq_Value",
+        "USART2Freq_Value",
+        "USART3Freq_Value",
+        "USBFreq_Value",
+        "VCOInputFreq_Value",
+        "VCOOutputFreq_Value",
+        "VCOSAI1OutputFreq_Value",
+        "VCOSAI2OutputFreq_Value",
+    ]
+
+    return {
+        "RCC.IPParameters": ",".join(rcc_parameters),
+        "RCC.ADCFreq_Value": 64_000_000,
+        "RCC.AHBFreq_Value": bus_hz,
+        "RCC.APB1Freq_Value": bus_hz,
+        "RCC.APB1TimFreq_Value": bus_hz,
+        "RCC.APB2Freq_Value": bus_hz,
+        "RCC.APB2TimFreq_Value": bus_hz,
+        "RCC.CortexFreq_Value": bus_hz,
+        "RCC.DFSDMFreq_Value": bus_hz,
+        "RCC.FCLKCortexFreq_Value": bus_hz,
+        "RCC.HCLKFreq_Value": bus_hz,
+        "RCC.I2C1Freq_Value": bus_hz,
+        "RCC.I2C2Freq_Value": bus_hz,
+        "RCC.I2C3Freq_Value": bus_hz,
+        "RCC.LPTIM1Freq_Value": bus_hz,
+        "RCC.LPTIM2Freq_Value": bus_hz,
+        "RCC.LPUART1Freq_Value": bus_hz,
+        "RCC.MCO1PinFreq_Value": bus_hz,
+        "RCC.PLLN": pll_n,
+        "RCC.PLLPoutputFreq_Value": vco_output_hz / 7,
+        "RCC.PLLQoutputFreq_Value": vco_output_hz / 2,
+        "RCC.PLLRCLKFreq_Value": bus_hz,
+        "RCC.PLLSAI1PoutputFreq_Value": 18_285_714.285714287,
+        "RCC.PLLSAI1QoutputFreq_Value": 64_000_000,
+        "RCC.PLLSAI1RoutputFreq_Value": 64_000_000,
+        "RCC.PLLSAI2PoutputFreq_Value": 18_285_714.285714287,
+        "RCC.PLLSAI2RoutputFreq_Value": 64_000_000,
+        "RCC.PLLSourceVirtual": "RCC_PLLSOURCE_MSI",
+        "RCC.PWRFreq_Value": bus_hz,
+        "RCC.RCC_MCO1Source": "RCC_MCO1SOURCE_SYSCLK",
+        "RCC.RCC_MCODiv": "RCC_MCODIV_1",
+        "RCC.RNGFreq_Value": 64_000_000,
+        "RCC.SAI1Freq_Value": 18_285_714.285714287,
+        "RCC.SAI2Freq_Value": 18_285_714.285714287,
+        "RCC.SDMMCFreq_Value": 64_000_000,
+        "RCC.SWPMI1Freq_Value": bus_hz,
+        "RCC.SYSCLKFreq_VALUE": bus_hz,
+        "RCC.SYSCLKSource": "RCC_SYSCLKSOURCE_PLLCLK",
+        "RCC.UART4Freq_Value": bus_hz,
+        "RCC.UART5Freq_Value": bus_hz,
+        "RCC.USART1Freq_Value": bus_hz,
+        "RCC.USART2Freq_Value": bus_hz,
+        "RCC.USART3Freq_Value": bus_hz,
+        "RCC.USBFreq_Value": 64_000_000,
+        "RCC.VCOInputFreq_Value": vco_input_hz,
+        "RCC.VCOOutputFreq_Value": vco_output_hz,
+        "RCC.VCOSAI1OutputFreq_Value": 128_000_000,
+        "RCC.VCOSAI2OutputFreq_Value": 128_000_000,
+    }
+
+
 def _target_register_channel(target_register: object) -> int | None:
     if not isinstance(target_register, str):
         return None
@@ -244,12 +362,42 @@ def build_ioc_model(
     for intent in interface_intents:
         if not isinstance(intent, dict):
             continue
-        if intent.get("type") == "clock" and intent.get("role") == "system_clock":
+        if intent.get("type") == "clock" and intent.get("role") in {
+            "system_clock",
+            "rcc_clockconfig_baseline",
+            "runtime_pll_source_switch",
+        }:
             sysclk_hz = intent.get("sysclk_hz")
             if isinstance(sysclk_hz, (int, float)):
                 _append_unique(model.clock_requirements, f"SYSCLK={int(sysclk_hz)}")
                 model.codegen_hints.append(
                     f"Confirm the clock tree is configured for {int(sysclk_hz)} Hz before validating later increments."
+                )
+            if intent.get("role") == "rcc_clockconfig_baseline":
+                mco_pin = str(intent.get("mco_pin") or "PA8").strip() or "PA8"
+                clock_hz = int(sysclk_hz) if isinstance(sysclk_hz, (int, float)) else 80_000_000
+                _append_unique(model.used_pins, mco_pin)
+                _append_unique(model.required_peripherals, "RCC")
+                model.bindings.append(
+                    {
+                        "type": "clock",
+                        "role": "rcc_clockconfig_baseline",
+                        "signals": {
+                            mco_pin: "RCC_MCO",
+                        },
+                        "modes": {
+                            mco_pin: "Clock-out",
+                        },
+                        "shared_properties": _rcc_msi_pll_80mhz_properties(clock_hz),
+                    }
+                )
+                model.codegen_hints.append(
+                    "Generate PA8 as MCO1 and keep the initial PLL source as MSI for the RCC ClockConfig baseline."
+                )
+            elif intent.get("role") == "runtime_pll_source_switch":
+                _append_unique(model.required_peripherals, "RCC")
+                model.codegen_hints.append(
+                    "Preserve the RCC ClockConfig baseline while firmware layers runtime PLL source switching on top."
                 )
         elif intent.get("type") == "watchdog" and intent.get("role") == "window_watchdog":
             instance = str(intent.get("instance") or "WWDG").strip() or "WWDG"
@@ -335,6 +483,87 @@ def build_ioc_model(
             )
             model.codegen_hints.append(
                 f"Generate MX_{instance}_Init with {clock_source} as the RTC clock source so firmware can program the requested alarm window on top of a valid RTC baseline."
+            )
+        elif intent.get("type") == "power" and intent.get("role") == "low_power_run":
+            run_mode_clock_hz = intent.get("run_mode_clock_hz")
+            low_power_clock_hz = intent.get("low_power_clock_hz")
+            enter_after_seconds = intent.get("enter_after_seconds")
+            if isinstance(run_mode_clock_hz, (int, float)):
+                model.codegen_hints.append(
+                    f"Preserve a RUN-mode clock target of {int(run_mode_clock_hz)} Hz before entering Low Power Run."
+                )
+            if isinstance(low_power_clock_hz, (int, float)):
+                model.codegen_hints.append(
+                    f"Firmware must switch MSI to approximately {int(low_power_clock_hz)} Hz for Low Power Run."
+                )
+            if isinstance(enter_after_seconds, (int, float)):
+                model.codegen_hints.append(
+                    f"Firmware must enter Low Power Run about {float(enter_after_seconds):.2f} seconds after startup and repeat the cycle after button wakeup."
+                )
+            model.codegen_hints.append(
+                "Low Power Run mode is a firmware behavior over the generated board baseline; keep the IOC valid and implement PWR/HAL state changes only in CubeMX user-code regions."
+            )
+        elif intent.get("type") == "analog" and intent.get("role") == "opamp_pga_signal_chain":
+            dac_output_signal = intent.get("dac_output_signal")
+            dac_output_pin = intent.get("dac_output_pin")
+            opamp_output_pin = intent.get("opamp_output_pin")
+            gain_values = intent.get("gain_values")
+            if isinstance(dac_output_signal, str) and isinstance(dac_output_pin, str):
+                model.codegen_hints.append(
+                    f"Preserve the requested DAC waveform output {dac_output_signal} on {dac_output_pin} for the OPAMP PGA chain."
+                )
+            if isinstance(opamp_output_pin, str):
+                model.codegen_hints.append(
+                    f"Preserve the requested OPAMP amplified output on {opamp_output_pin}."
+                )
+            if isinstance(gain_values, list) and gain_values:
+                model.codegen_hints.append(
+                    "Firmware must support on-the-fly OPAMP PGA gain changes for values "
+                    + ", ".join(str(value) for value in gain_values if isinstance(value, int))
+                    + "."
+                )
+            if intent.get("requires_dac_dma_sine"):
+                model.codegen_hints.append(
+                    "Firmware and IOC support must provide DAC sinewave samples through DMA circular mode before OPAMP validation."
+                )
+            if intent.get("requires_cortex_sleep"):
+                model.codegen_hints.append(
+                    "Firmware must sequence OPAMP/DAC low-power modes while the Cortex enters sleep mode as requested."
+                )
+            model.codegen_hints.append(
+                "OPAMP PGA signal-chain delivery needs analog peripheral IOC mapping and firmware sequencing beyond the current baseline IOC mutation path."
+            )
+        elif intent.get("type") == "lptim" and intent.get("role") == "external_counter_low_power_pwm":
+            autoreload = intent.get("autoreload")
+            pulse = intent.get("pulse")
+            divider = intent.get("output_frequency_divider")
+            duty_cycle = intent.get("duty_cycle_percent")
+            if isinstance(autoreload, int):
+                model.codegen_hints.append(
+                    f"Preserve the requested LPTIM autoreload value {autoreload} for external-counter PWM generation."
+                )
+            if isinstance(pulse, int):
+                model.codegen_hints.append(
+                    f"Preserve the requested LPTIM pulse value {pulse}."
+                )
+            if isinstance(divider, int):
+                model.codegen_hints.append(
+                    f"The requested PWM output frequency is the external counter clock divided by {divider}."
+                )
+            if isinstance(duty_cycle, (int, float)):
+                model.codegen_hints.append(
+                    f"The requested LPTIM duty cycle is approximately {float(duty_cycle):.1f}%."
+                )
+            if intent.get("requires_stop_mode"):
+                model.codegen_hints.append(
+                    "Firmware must enter STOP mode after starting LPTIM PWM and wake on the configured button EXTI event."
+                )
+            if intent.get("requires_low_speed_gpio"):
+                model.codegen_hints.append(
+                    "GPIOs used by this low-power LPTIM flow should be configured for Low Speed where applicable."
+                )
+            model.codegen_hints.append(
+                "LPTIM external-counter PWM needs peripheral-specific IOC mapping and firmware STOP-mode sequencing beyond the current baseline IOC mutation path."
             )
         elif intent.get("type") == "timer_pwm" and intent.get("role") in {"pwm_output", "complementary_pwm_output"}:
             instance = str(intent.get("instance") or "").strip()

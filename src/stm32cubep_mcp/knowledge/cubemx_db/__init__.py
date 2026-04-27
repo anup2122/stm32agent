@@ -1,5 +1,6 @@
 from .indexer import INDEX_VERSION, build_cubemx_db_index
 from .query import (
+    cubemx_xml_references_for_ip,
     dma_request_mappings,
     find_board_baseline,
     find_mcu,
@@ -15,6 +16,7 @@ __all__ = [
     "boards_dir",
     "build_cubemx_db_index",
     "config_dir",
+    "cubemx_xml_references_for_ip",
     "default_cubemx_db_root",
     "dma_request_mappings",
     "find_board_baseline",

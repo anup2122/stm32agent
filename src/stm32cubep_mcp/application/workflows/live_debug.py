@@ -87,6 +87,7 @@ async def run_runtime_validation_stage(
     flash_timeout_seconds: int,
     update_plan_status: Callable[..., dict[str, object]],
     orchestrate_debug_session_fn: Callable[..., Awaitable[dict[str, object]]],
+    stop_debug_session_fn: Callable[..., dict[str, object]] | None = None,
 ) -> dict[str, object]:
     if plan_file:
         update_plan_status(
@@ -102,6 +103,20 @@ async def run_runtime_validation_stage(
         reset_before_launch=False,
         timeout_seconds=min(flash_timeout_seconds, 60),
     )
+    cleanup_result: dict[str, object] | None = None
+    if runtime_validation_result.get("success") and stop_debug_session_fn is not None:
+        cleanup_result = stop_debug_session_fn(
+            session_name="feature-runtime-validation",
+            force=False,
+            timeout_seconds=10,
+        )
+        cleanup_message = str(cleanup_result.get("message") or "").lower()
+        cleanup_ok = bool(cleanup_result.get("success")) or "not running" in cleanup_message
+        runtime_validation_result = {
+            **runtime_validation_result,
+            "cleanup_result": cleanup_result,
+            "success": cleanup_ok,
+        }
 
     if plan_file:
         update_plan_status(
@@ -109,7 +124,7 @@ async def run_runtime_validation_stage(
             stage="runtime_validation",
             status="completed" if runtime_validation_result.get("success") else "failed",
             message=(
-                "Runtime validation session is ready after flash."
+                "Runtime validation completed and the debug session was released."
                 if runtime_validation_result.get("success")
                 else "Runtime validation could not prepare a post-flash debug session."
             ),

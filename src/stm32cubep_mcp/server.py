@@ -1,6 +1,8 @@
 from .cube_programmer.server import *  # noqa: F401,F403
 from . import shared
 
+PROJECT_SCHEMA_PATH = shared.PROJECT_SCHEMA_PATH
+
 
 def resolve_cli_path() -> str:
     discovery = discover_cube_programmer()

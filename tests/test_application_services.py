@@ -16,7 +16,7 @@ from stm32cubep_mcp.application.services import (
     project_config_service,
     routing_service,
 )
-from stm32cubep_mcp.application.workflows import cubemx_regeneration, debug_question, prompt_router
+from stm32cubep_mcp.application.workflows import cubemx_regeneration, debug_question, live_debug, prompt_router
 
 
 class RoutingServiceTests(unittest.TestCase):
@@ -386,6 +386,24 @@ class IocBuilderServiceTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_validation_releases_debug_session(self) -> None:
+        updates: list[dict[str, object]] = []
+        stop_calls: list[dict[str, object]] = []
+
+        result = await live_debug.run_runtime_validation_stage(
+            plan_file="plan.md",
+            increment_id="increment-1",
+            flash_timeout_seconds=120,
+            update_plan_status=lambda *args, **kwargs: updates.append({"args": args, "kwargs": kwargs}) or {"success": True},
+            orchestrate_debug_session_fn=AsyncMock(return_value={"success": True, "workflow": "debug_session"}),
+            stop_debug_session_fn=lambda **kwargs: stop_calls.append(kwargs) or {"success": True, "operation": "stop"},
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(stop_calls[0]["session_name"], "feature-runtime-validation")
+        self.assertEqual(result["cleanup_result"]["operation"], "stop")
+        self.assertEqual(updates[-1]["kwargs"]["status"], "completed")
+
     def test_cubemx_regeneration_calls_tool_with_resolved_request(self) -> None:
         recorded: dict[str, object] = {}
 
@@ -504,6 +522,8 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             prompt="Create a NUCLEO-L476RG project that sends data to PC",
             timeout_seconds=45,
             classify_prompt=routing_service.classify_prompt,
+            resolve_prompt_mode=routing_service.resolve_prompt_mode,
+            prompt_without_mode_prefix=routing_service.prompt_without_mode_prefix,
             extract_file_path=routing_service.extract_file_path,
             is_debug_question=routing_service.is_debug_question,
             orchestrate_build_then_flash_fn=AsyncMock(),
@@ -524,6 +544,61 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             cubemx_timeout_seconds=300,
         )
         self.assertEqual(result["selected_domain"], "requirements")
+        self.assertEqual(result["resolved_mode"], "firmware-delivery")
+
+    async def test_prompt_router_defaults_agent_development_prompts_to_develop_agent(self) -> None:
+        orchestrate_feature_prompt_fn = AsyncMock(return_value={"success": True, "workflow": "feature_delivery"})
+
+        result = await prompt_router.route_prompt(
+            prompt="add a new MCP tool for UART VCP detection",
+            timeout_seconds=45,
+            classify_prompt=routing_service.classify_prompt,
+            resolve_prompt_mode=routing_service.resolve_prompt_mode,
+            prompt_without_mode_prefix=routing_service.prompt_without_mode_prefix,
+            extract_file_path=routing_service.extract_file_path,
+            is_debug_question=routing_service.is_debug_question,
+            orchestrate_build_then_flash_fn=AsyncMock(),
+            build_project=lambda **kwargs: {"success": True, **kwargs},
+            orchestrate_feature_prompt_fn=orchestrate_feature_prompt_fn,
+            orchestrate_debug_question_fn=AsyncMock(),
+            orchestrate_debug_session_fn=AsyncMock(),
+            orchestrate_cubemx_regeneration_fn=lambda **kwargs: {"success": True, **kwargs},
+            parse_ioc=lambda: {"success": True},
+            flash_firmware=AsyncMock(),
+            report_host_capabilities=lambda **kwargs: {"success": True, **kwargs},
+        )
+
+        orchestrate_feature_prompt_fn.assert_not_awaited()
+        self.assertEqual(result["resolved_mode"], "develop-agent")
+        self.assertEqual(result["selected_domain"], "develop_agent")
+        self.assertIn("MCP server development", result["result"]["message"])
+
+    async def test_prompt_router_test_only_blocks_firmware_generation(self) -> None:
+        orchestrate_feature_prompt_fn = AsyncMock(return_value={"success": True, "workflow": "feature_delivery"})
+
+        result = await prompt_router.route_prompt(
+            prompt="test-only: Create a NUCLEO-L476RG project that sends data to PC",
+            timeout_seconds=45,
+            classify_prompt=routing_service.classify_prompt,
+            resolve_prompt_mode=routing_service.resolve_prompt_mode,
+            prompt_without_mode_prefix=routing_service.prompt_without_mode_prefix,
+            extract_file_path=routing_service.extract_file_path,
+            is_debug_question=routing_service.is_debug_question,
+            orchestrate_build_then_flash_fn=AsyncMock(),
+            build_project=lambda **kwargs: {"success": True, **kwargs},
+            orchestrate_feature_prompt_fn=orchestrate_feature_prompt_fn,
+            orchestrate_debug_question_fn=AsyncMock(),
+            orchestrate_debug_session_fn=AsyncMock(),
+            orchestrate_cubemx_regeneration_fn=lambda **kwargs: {"success": True, **kwargs},
+            parse_ioc=lambda: {"success": True},
+            flash_firmware=AsyncMock(),
+            report_host_capabilities=lambda **kwargs: {"success": True, **kwargs},
+        )
+
+        orchestrate_feature_prompt_fn.assert_not_awaited()
+        self.assertEqual(result["resolved_mode"], "test-only")
+        self.assertEqual(result["selected_domain"], "requirements")
+        self.assertFalse(result["result"]["success"])
 
 
 if __name__ == "__main__":

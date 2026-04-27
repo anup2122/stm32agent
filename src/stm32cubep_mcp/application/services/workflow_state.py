@@ -217,8 +217,24 @@ def _coerce_increment_records(value: object) -> list[dict[str, object]]:
 
 
 def next_pending_increment(plan_state: dict[str, object] | None, contract: dict[str, object]) -> list[dict[str, object]]:
+    contract_increments = contract_increment_records(contract)
     if isinstance(plan_state, dict):
         plan_increments = _coerce_increment_records(plan_state.get("increments"))
-        if plan_increments:
+        if plan_increments and _increment_identity_matches(plan_increments, contract_increments):
             return [increment for increment in plan_increments if increment.get("status") != "completed"]
-    return contract_increment_records(contract)
+    return contract_increments
+
+
+def _increment_identity_matches(plan_increments: list[dict[str, object]], contract_increments: list[dict[str, object]]) -> bool:
+    if len(plan_increments) != len(contract_increments):
+        return False
+    for plan_increment, contract_increment in zip(plan_increments, contract_increments):
+        plan_feature_ids = plan_increment.get("feature_ids")
+        contract_feature_ids = contract_increment.get("feature_ids")
+        plan_intent_ids = plan_increment.get("interface_intent_ids")
+        contract_intent_ids = contract_increment.get("interface_intent_ids")
+        if plan_feature_ids != contract_feature_ids:
+            return False
+        if plan_intent_ids != contract_intent_ids:
+            return False
+    return True

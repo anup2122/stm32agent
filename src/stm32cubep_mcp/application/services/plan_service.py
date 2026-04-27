@@ -110,9 +110,18 @@ def can_resume_existing_plan(existing: dict[str, object], contract: dict[str, ob
     if existing_target.get("board_id") != contract_target.get("board_id") or existing_target.get("mcu") != contract_target.get("mcu"):
         return False
 
-    existing_increment_ids = [record.get("id") for record in coerce_increment_records(existing.get("increments"))]
-    contract_increment_ids = [increment.get("id") for increment in list_contract_increments(contract)]
-    return existing_increment_ids == contract_increment_ids
+    existing_increments = coerce_increment_records(existing.get("increments"))
+    contract_increments = list_contract_increments(contract)
+    if len(existing_increments) != len(contract_increments):
+        return False
+    for existing_increment, contract_increment in zip(existing_increments, contract_increments):
+        if existing_increment.get("id") != contract_increment.get("id"):
+            return False
+        if existing_increment.get("feature_ids") != contract_increment.get("feature_ids"):
+            return False
+        if existing_increment.get("interface_intent_ids") != contract_increment.get("interface_intent_ids"):
+            return False
+    return True
 
 
 def merge_existing_plan_artifact(existing: dict[str, object], contract: dict[str, object]) -> dict[str, object]:
@@ -138,6 +147,9 @@ def merge_existing_plan_artifact(existing: dict[str, object], contract: dict[str
         if existing_record is None:
             merged_records.append(record)
             continue
+        if not _can_preserve_increment_progress(record, existing_record):
+            merged_records.append(record)
+            continue
         merged_records.append(
             {
                 **record,
@@ -156,6 +168,21 @@ def merge_existing_plan_artifact(existing: dict[str, object], contract: dict[str
     artifact["active_increment_id"] = existing.get("active_increment_id")
     sync_increment_summary_fields(artifact)
     return artifact
+
+
+def _can_preserve_increment_progress(record: dict[str, object], existing_record: dict[str, object]) -> bool:
+    if existing_record.get("status") != "completed":
+        return True
+
+    title = record.get("title")
+    last_message = existing_record.get("last_message")
+    if not isinstance(title, str) or not title.strip():
+        return True
+    if not isinstance(last_message, str) or not last_message.strip():
+        return False
+    if not last_message.startswith("Implement ") or " completed successfully" not in last_message:
+        return True
+    return title in last_message
 
 
 def update_increment_record(

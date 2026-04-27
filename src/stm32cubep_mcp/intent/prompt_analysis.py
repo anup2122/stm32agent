@@ -8,10 +8,19 @@ from ..project_model import IntentBundle
 
 GENERIC_ENGINEERING_FEATURE_ID = "core-generic-engineering-spec"
 GENERIC_ENGINEERING_HINT_PATTERN = re.compile(
-    r"\b(?:TIM\d+|USART\d+|UART\d+|SPI\d+|I2C\d+|ADC\d+|DAC\d+|DMA|PWM|GPIO|EXTI|RCC|SYSCLK|SystemCoreClock|WWDG|watchdog|Hardfault|RTC|Alarm|LSI|LSE)\b",
+    r"\b(?:TIM\d+|LPTIM\d*|USART\d+|UART\d+|SPI\d+|I2C\d+|ADC\d+|DAC|DMA|PWM|GPIO|EXTI|RCC|PWR|LPRUN|OPAMP|PGA|SYSCLK|SystemCoreClock|PLL|MSI|HSI|MCO1|MCO|WWDG|watchdog|Hardfault|RTC|Alarm|LSI|LSE)\b|low[- ]power run|STOP mode",
     re.IGNORECASE,
 )
 GENERIC_CLOCK_HINT_PATTERN = re.compile(r"\b(\d+(?:\.\d+)?)\s*mhz\b", re.IGNORECASE)
+RUN_MODE_CLOCK_HINT_PATTERN = re.compile(r"\bsystem clock is set to\s+(\d+(?:\.\d+)?)\s*mhz\b", re.IGNORECASE)
+LOW_POWER_MSI_HINT_PATTERN = re.compile(r"\bMSI\s*(?:Range\s*)?0\b.*?\b(\d+(?:\.\d+)?)\s*KHz\b|\b(\d+(?:\.\d+)?)\s*KHz\b.*?\bMSI\s*(?:Range\s*)?0\b", re.IGNORECASE | re.DOTALL)
+ENTER_LOW_POWER_AFTER_SECONDS_PATTERN = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*seconds?\s+after\s+start[- ]up\b", re.IGNORECASE)
+DAC_OUTPUT_PATTERN = re.compile(r"\b(DAC_OUT\d+)\s*\((P[A-Z]\d+)\)", re.IGNORECASE)
+OPAMP_OUTPUT_PATTERN = re.compile(r"\b(OPAMP\d+).*?\bon\s+(P[A-Z]\d+)", re.IGNORECASE | re.DOTALL)
+OPAMP_GAIN_PATTERN = re.compile(r"\bgain\s*(?:=|of either)?\s*(\d+)\b", re.IGNORECASE)
+OPAMP_GAIN_EITHER_PATTERN = re.compile(r"\bgain\s+of\s+either\s+(\d+)\s+or\s+(\d+)\b", re.IGNORECASE)
+LPTIM_AUTORELOAD_PATTERN = re.compile(r"\bAuto(?:reload|relaod)\s+equal\s+to\s+(\d+)\b", re.IGNORECASE)
+LPTIM_PULSE_PATTERN = re.compile(r"\bPulse\s+value\s+equal\s+to\s+(\d+)\b", re.IGNORECASE)
 TIMER_INSTANCE_PATTERN = re.compile(r"\b(TIM\d+)\b", re.IGNORECASE)
 CHANNEL_PATTERN = re.compile(r"\bchannel\s*(\d+)\b", re.IGNORECASE)
 FREQUENCY_PATTERN = re.compile(r"\bfrequency(?:\s+equal\s+to|\s+of)?\s*(\d+(?:\.\d+)?)\s*(khz|hz)\b", re.IGNORECASE)
@@ -114,9 +123,24 @@ def _engineering_spec_details(prompt: str, metadata: dict[str, object]) -> dict[
     rtc_initial_time_match = RTC_INITIAL_TIME_PATTERN.search(prompt)
     rtc_alarm_time_match = RTC_ALARM_TIME_PATTERN.search(prompt)
     rtc_alarm_after_seconds_match = RTC_ALARM_AFTER_SECONDS_PATTERN.search(prompt)
+    run_mode_clock_match = RUN_MODE_CLOCK_HINT_PATTERN.search(prompt)
+    low_power_msi_match = LOW_POWER_MSI_HINT_PATTERN.search(prompt)
+    enter_low_power_after_match = ENTER_LOW_POWER_AFTER_SECONDS_PATTERN.search(prompt)
+    dac_output_match = DAC_OUTPUT_PATTERN.search(prompt)
+    opamp_output_match = OPAMP_OUTPUT_PATTERN.search(prompt)
+    lptim_autoreload_match = LPTIM_AUTORELOAD_PATTERN.search(prompt)
+    lptim_pulse_match = LPTIM_PULSE_PATTERN.search(prompt)
 
     clock_mhz = metadata.get("clock_mhz")
     clock_hz = int(float(clock_mhz) * 1_000_000) if isinstance(clock_mhz, (int, float)) else None
+    run_mode_clock_mhz = _decimal_number(run_mode_clock_match.group(1)) if run_mode_clock_match is not None else None
+    low_power_msi_khz = None
+    if low_power_msi_match is not None:
+        low_power_msi_khz = _decimal_number(low_power_msi_match.group(1) or low_power_msi_match.group(2))
+    opamp_gain_values = {int(match.group(1)) for match in OPAMP_GAIN_PATTERN.finditer(prompt)}
+    for match in OPAMP_GAIN_EITHER_PATTERN.finditer(prompt):
+        opamp_gain_values.add(int(match.group(1)))
+        opamp_gain_values.add(int(match.group(2)))
     refresh_interval_match_value = None
     if wwdg_refresh_interval_match is not None:
         refresh_interval_match_value = wwdg_refresh_interval_match.group(1) or wwdg_refresh_interval_match.group(2)
@@ -135,10 +159,22 @@ def _engineering_spec_details(prompt: str, metadata: dict[str, object]) -> dict[
         "requires_host_debug_uart": DEBUG_UART_TEST_PATTERN.search(prompt) is not None,
         "requires_wwdg": "wwdg" in lowered or "window watchdog" in lowered,
         "requires_rtc_alarm": "rtc" in lowered and "alarm" in lowered,
+        "requires_rcc_clockconfig": (
+            "rcc_clockconfig" in lowered
+            or ("pll" in lowered and "msi" in lowered and "hsi" in lowered and ("mco" in lowered or "mco1" in lowered))
+        ),
+        "requires_low_power_run": "pwr_lprun" in lowered or "low power run" in lowered or "low-power run" in lowered or "lp run" in lowered,
+        "requires_opamp_pga": "opamp_pga" in lowered or ("opamp" in lowered and "pga" in lowered),
+        "requires_lptim_external_counter_pwm": "lptim" in lowered and "pwm" in lowered and "external counter" in lowered,
         "requires_led_status": "led2" in lowered or "toggling" in lowered or "turned on for" in lowered,
         "requires_user_button_exti": "exti line" in lowered or "user push-button" in lowered or "pc.13" in lowered,
         "fault_injection_hardfault": "hardfault" in lowered or "invalid address" in lowered,
-        "standalone_required": "standalone mode" in lowered or "not in debug" in lowered,
+        "standalone_required": (
+            "standalone mode" in lowered
+            or "not in debug" in lowered
+            or "cannot be used in debug" in lowered
+            or "can not be used in debug" in lowered
+        ),
         "wwdg_timeout_ms": _decimal_number(wwdg_timeout_match.group(1)) if wwdg_timeout_match is not None else None,
         "wwdg_refresh_interval_ms": _decimal_number(refresh_interval_match_value),
         "wwdg_reset_counter_hex": f"0x{wwdg_reset_counter_match.group(1).upper()}" if wwdg_reset_counter_match is not None else None,
@@ -147,6 +183,21 @@ def _engineering_spec_details(prompt: str, metadata: dict[str, object]) -> dict[
         "rtc_initial_time_hms": _time_tuple_from_match(rtc_initial_time_match),
         "rtc_alarm_time_hms": _time_tuple_from_match(rtc_alarm_time_match),
         "rtc_alarm_after_seconds": int(rtc_alarm_after_seconds_match.group(1)) if rtc_alarm_after_seconds_match is not None else None,
+        "run_mode_clock_hz": int(float(run_mode_clock_mhz) * 1_000_000) if isinstance(run_mode_clock_mhz, (int, float)) else None,
+        "low_power_clock_hz": int(float(low_power_msi_khz) * 1000) if isinstance(low_power_msi_khz, (int, float)) else None,
+        "enter_low_power_after_seconds": _decimal_number(enter_low_power_after_match.group(1)) if enter_low_power_after_match is not None else None,
+        "dac_output_signal": dac_output_match.group(1).upper() if dac_output_match is not None else None,
+        "dac_output_pin": dac_output_match.group(2).upper() if dac_output_match is not None else None,
+        "opamp_output_instance": opamp_output_match.group(1).upper() if opamp_output_match is not None else None,
+        "opamp_output_pin": opamp_output_match.group(2).upper() if opamp_output_match is not None else None,
+        "opamp_gain_values": sorted(opamp_gain_values),
+        "requires_dac_dma_sine": "sine" in lowered and "dac" in lowered and "dma" in lowered,
+        "requires_cortex_sleep": "cortex" in lowered and "sleep mode" in lowered,
+        "requires_no_dma_interrupt_handling": "no dma interrupt handling" in lowered or "no it handled by cortex" in lowered,
+        "lptim_autoreload": int(lptim_autoreload_match.group(1)) if lptim_autoreload_match is not None else None,
+        "lptim_pulse": int(lptim_pulse_match.group(1)) if lptim_pulse_match is not None else None,
+        "requires_stop_mode": "stop mode" in lowered,
+        "requires_low_speed_gpio": "gpio" in lowered and "low speed" in lowered,
     }
 
 
@@ -163,26 +214,220 @@ def _plan_engineering_spec_features(
 
     clock_hz = details.get("clock_hz")
     if isinstance(clock_hz, int) and clock_hz > 0:
+        requires_rcc_clockconfig = bool(details.get("requires_rcc_clockconfig"))
+        clock_feature_id = "core-rcc-clockconfig-baseline" if requires_rcc_clockconfig else f"core-clock-{clock_hz}"
+        clock_feature_title = (
+            "Configure RCC ClockConfig baseline"
+            if requires_rcc_clockconfig
+            else f"Configure system clock to {clock_hz} Hz"
+        )
+        clock_feature_summary = (
+            "Configure SYSCLK at 80 MHz from PLL/MSI and expose SYSCLK on MCO1 PA8 before runtime switching is layered on."
+            if requires_rcc_clockconfig
+            else "Establish the requested system clock before peripheral feature delivery starts."
+        )
         core_features.append(
             {
-                "id": f"core-clock-{clock_hz}",
-                "title": f"Configure system clock to {clock_hz} Hz",
+                "id": clock_feature_id,
+                "title": clock_feature_title,
                 "kind": "core",
-                "summary": "Establish the requested system clock before peripheral feature delivery starts.",
+                "summary": clock_feature_summary,
                 "interface_intent_ids": ["iface-clock-system"],
-                "spec": {"clock_hz": clock_hz},
+                "spec": {
+                    "clock_hz": clock_hz,
+                    "initial_pll_source": "MSI" if requires_rcc_clockconfig else None,
+                    "mco_pin": "PA8" if requires_rcc_clockconfig else None,
+                },
+            }
+        )
+        clock_intent = {
+            "id": "iface-clock-system",
+            "type": "clock",
+            "role": "rcc_clockconfig_baseline" if requires_rcc_clockconfig else "system_clock",
+            "sysclk_hz": clock_hz,
+            "source": "engineering_spec",
+        }
+        if requires_rcc_clockconfig:
+            clock_intent.update(
+                {
+                    "initial_pll_source": "MSI",
+                    "mco_pin": "PA8",
+                    "mco_source": "SYSCLK",
+                }
+            )
+        interface_intents.append(clock_intent)
+        assumptions.append("The engineering specification's system clock requirement should be satisfied before timer and DMA features are validated.")
+
+        if requires_rcc_clockconfig:
+            pluggable_features.append(
+                {
+                    "id": "pluggable-rcc-pll-source-switch",
+                    "title": "Runtime PLL source switch",
+                    "kind": "pluggable",
+                    "summary": "Use the user button EXTI path to switch the PLL source between MSI and HSI at runtime after the baseline clock is working.",
+                    "interface_intent_ids": ["iface-rcc-pll-source-switch", "iface-button-pc13"],
+                    "spec": {
+                        "initial_pll_source": "MSI",
+                        "alternate_pll_source": "HSI",
+                        "button_pin": "PC13",
+                        "button_exti_line": 13,
+                    },
+                }
+            )
+            interface_intents.append(
+                {
+                    "id": "iface-rcc-pll-source-switch",
+                    "type": "clock",
+                    "role": "runtime_pll_source_switch",
+                    "sysclk_hz": clock_hz,
+                    "initial_pll_source": "MSI",
+                    "alternate_pll_source": "HSI",
+                    "button_pin": "PC13",
+                    "button_exti_line": 13,
+                    "source": "engineering_spec",
+                }
+            )
+            interface_intents.append(
+                {
+                    "id": "iface-button-pc13",
+                    "type": "gpio_exti",
+                    "role": "user_button",
+                    "pin": "PC13",
+                    "label": "B1 [Blue PushButton]",
+                    "signal": "GPXTI13",
+                    "source": "engineering_spec",
+                }
+            )
+
+    if details.get("requires_low_power_run"):
+        core_features.append(
+            {
+                "id": "core-pwr-low-power-run",
+                "title": "Low Power Run mode",
+                "kind": "core",
+                "summary": "Preserve the requested Low Power Run state machine as an explicit firmware behavior increment.",
+                "interface_intent_ids": ["iface-pwr-low-power-run"],
+                "spec": {
+                    "run_mode_clock_hz": details.get("run_mode_clock_hz"),
+                    "low_power_clock_hz": details.get("low_power_clock_hz"),
+                    "msi_range": 0,
+                    "enter_after_seconds": details.get("enter_low_power_after_seconds"),
+                    "exit_button_pin": "PC13" if details.get("requires_user_button_exti") else None,
+                    "regulator_mode": "low_power",
+                    "voltage_range": 2,
+                    "flash_wait_states": 0,
+                    "debug_mode_supported": not bool(details.get("standalone_required")),
+                },
             }
         )
         interface_intents.append(
             {
-                "id": "iface-clock-system",
-                "type": "clock",
-                "role": "system_clock",
-                "sysclk_hz": clock_hz,
+                "id": "iface-pwr-low-power-run",
+                "type": "power",
+                "role": "low_power_run",
+                "run_mode_clock_hz": details.get("run_mode_clock_hz"),
+                "low_power_clock_hz": details.get("low_power_clock_hz"),
+                "msi_range": 0,
+                "enter_after_seconds": details.get("enter_low_power_after_seconds"),
+                "exit_button_pin": "PC13" if details.get("requires_user_button_exti") else None,
+                "regulator_mode": "low_power",
+                "voltage_range": 2,
+                "flash_wait_states": 0,
+                "debug_mode_supported": not bool(details.get("standalone_required")),
                 "source": "engineering_spec",
             }
         )
-        assumptions.append("The engineering specification's system clock requirement should be satisfied before timer and DMA features are validated.")
+        assumptions.append("Low Power Run behavior requires firmware state-machine code in CubeMX user-code regions; IOC can only preserve the surrounding board setup.")
+        if details.get("standalone_required"):
+            assumptions.append("Runtime validation should avoid debugger-dependent checks because the prompt states that this low-power example cannot be used in debug mode.")
+
+    if details.get("requires_opamp_pga"):
+        core_features.append(
+            {
+                "id": "core-opamp-pga-signal-chain",
+                "title": "OPAMP PGA signal chain",
+                "kind": "core",
+                "summary": "Preserve the requested DAC-to-OPAMP programmable-gain analog signal chain as an explicit firmware behavior increment.",
+                "interface_intent_ids": ["iface-opamp-pga-signal-chain"],
+                "spec": {
+                    "dac_output_signal": details.get("dac_output_signal"),
+                    "dac_output_pin": details.get("dac_output_pin"),
+                    "opamp_output_instance": details.get("opamp_output_instance"),
+                    "opamp_output_pin": details.get("opamp_output_pin"),
+                    "gain_values": details.get("opamp_gain_values"),
+                    "requires_dac_dma_sine": bool(details.get("requires_dac_dma_sine")),
+                    "uses_low_power_modes": "low power mode" in prompt.lower(),
+                    "requires_cortex_sleep": bool(details.get("requires_cortex_sleep")),
+                    "requires_no_dma_interrupt_handling": bool(details.get("requires_no_dma_interrupt_handling")),
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-opamp-pga-signal-chain",
+                "type": "analog",
+                "role": "opamp_pga_signal_chain",
+                "dac_output_signal": details.get("dac_output_signal"),
+                "dac_output_pin": details.get("dac_output_pin"),
+                "opamp_instances": ["OPAMP1", "OPAMP2"],
+                "opamp_output_instance": details.get("opamp_output_instance"),
+                "opamp_output_pin": details.get("opamp_output_pin"),
+                "gain_values": details.get("opamp_gain_values"),
+                "requires_dac_dma_sine": bool(details.get("requires_dac_dma_sine")),
+                "uses_low_power_modes": "low power mode" in prompt.lower(),
+                "requires_cortex_sleep": bool(details.get("requires_cortex_sleep")),
+                "requires_no_dma_interrupt_handling": bool(details.get("requires_no_dma_interrupt_handling")),
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("OPAMP PGA prompts require analog peripheral IOC mapping plus firmware sequencing; unsupported pieces must be kept visible in the plan instead of collapsed into UART-only diagnostics.")
+
+    if details.get("requires_lptim_external_counter_pwm"):
+        autoreload = details.get("lptim_autoreload")
+        pulse = details.get("lptim_pulse")
+        duty_cycle_percent = None
+        if isinstance(autoreload, int) and isinstance(pulse, int) and autoreload >= 0:
+            duty_cycle_percent = round((1.0 - ((pulse + 1.0) / (autoreload + 1.0))) * 100.0, 3)
+        core_features.append(
+            {
+                "id": "core-lptim-external-counter-low-power-pwm",
+                "title": "LPTIM external-counter low-power PWM",
+                "kind": "core",
+                "summary": "Preserve the requested LPTIM external-counter PWM and STOP-mode wakeup flow as an explicit firmware behavior increment.",
+                "interface_intent_ids": ["iface-lptim-external-counter-pwm"],
+                "spec": {
+                    "instance": "LPTIM",
+                    "clock_source": "external_counter",
+                    "autoreload": autoreload,
+                    "pulse": pulse,
+                    "output_frequency_divider": (autoreload + 1) if isinstance(autoreload, int) else None,
+                    "duty_cycle_percent": duty_cycle_percent,
+                    "requires_stop_mode": bool(details.get("requires_stop_mode")),
+                    "requires_low_speed_gpio": bool(details.get("requires_low_speed_gpio")),
+                    "wakeup_pin": "PC13" if details.get("requires_user_button_exti") else None,
+                    "stop_pwm_on_wakeup": True,
+                },
+            }
+        )
+        interface_intents.append(
+            {
+                "id": "iface-lptim-external-counter-pwm",
+                "type": "lptim",
+                "role": "external_counter_low_power_pwm",
+                "instance": "LPTIM",
+                "clock_source": "external_counter",
+                "autoreload": autoreload,
+                "pulse": pulse,
+                "output_frequency_divider": (autoreload + 1) if isinstance(autoreload, int) else None,
+                "duty_cycle_percent": duty_cycle_percent,
+                "requires_stop_mode": bool(details.get("requires_stop_mode")),
+                "requires_low_speed_gpio": bool(details.get("requires_low_speed_gpio")),
+                "wakeup_pin": "PC13" if details.get("requires_user_button_exti") else None,
+                "stop_pwm_on_wakeup": True,
+                "source": "engineering_spec",
+            }
+        )
+        assumptions.append("LPTIM external-counter PWM prompts require peripheral-specific IOC mapping plus firmware STOP-mode sequencing; unsupported pieces must remain visible in the plan.")
 
     if details.get("requires_led_status"):
         core_features.append(
@@ -359,7 +604,9 @@ def _plan_engineering_spec_features(
             }
         )
 
-    if details.get("requires_user_button_exti"):
+    if details.get("requires_user_button_exti") and not any(
+        intent.get("id") == "iface-button-pc13" for intent in interface_intents if isinstance(intent, dict)
+    ):
         pluggable_features.append(
             {
                 "id": "pluggable-user-button-fault-trigger",

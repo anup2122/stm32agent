@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-import re
 
 from mcp.server.fastmcp import FastMCP
 
@@ -21,18 +20,21 @@ from ..ioc_builder import server as ioc_builder_server
 from ..requirements import server as requirements_server
 
 WorkflowRoute = routing_service.WorkflowRoute
+PromptMode = routing_service.PromptMode
 
 mcp = FastMCP("stm32orchestrator")
-
-UART_CORE_FEATURE_ID = "core-uart-device-to-pc"
-UART_APP_INCLUDE_SNIPPET = "#include <string.h>"
-UART_APP_MESSAGE_SNIPPET = 'static const char uart_message[] = "STM32CubeP USART2 telemetry ready\\r\\n";'
-UART_APP_BOOT_SNIPPET = "HAL_UART_Transmit(&huart2, (uint8_t *)uart_message, strlen(uart_message), HAL_MAX_DELAY);"
-UART_APP_LOOP_SNIPPET = "HAL_UART_Transmit(&huart2, (uint8_t *)uart_message, strlen(uart_message), HAL_MAX_DELAY);\nHAL_Delay(1000);"
 
 
 def classify_prompt(prompt: str) -> WorkflowRoute:
     return routing_service.classify_prompt(prompt)
+
+
+def resolve_prompt_mode(prompt: str, requested_mode: str | None = "auto") -> PromptMode:
+    return routing_service.resolve_prompt_mode(prompt, requested_mode)
+
+
+def prompt_without_mode_prefix(prompt: str) -> str:
+    return routing_service.prompt_without_mode_prefix(prompt)
 
 
 def extract_file_path(prompt: str) -> str | None:
@@ -150,101 +152,6 @@ def next_pending_increment(plan_state: dict[str, object] | None, contract: dict[
     return workflow_state.next_pending_increment(plan_state, contract)
 
 
-def source_project_root_for_ioc(ioc_path: str) -> Path:
-    return Path(ioc_path).resolve().parent
-
-
-def resolve_main_source_path(project_root: Path) -> Path:
-    for candidate in (project_root / "Src" / "main.c", project_root / "Core" / "Src" / "main.c"):
-        if candidate.is_file():
-            return candidate
-    raise FileNotFoundError(f"main.c was not found under source project root: {project_root}")
-
-
-def replace_user_code_block(contents: str, block_name: str, snippet: str) -> str:
-    pattern = re.compile(
-        rf"(?P<indent>[ \t]*)/\* USER CODE BEGIN {re.escape(block_name)} \*/\n(?P<body>.*?)(?P=indent)/\* USER CODE END {re.escape(block_name)} \*/",
-        re.DOTALL,
-    )
-    match = pattern.search(contents)
-    if match is None:
-        raise ValueError(f"USER CODE block '{block_name}' was not found.")
-
-    indent = match.group("indent")
-    body_lines = match.group("body").splitlines()
-    preserved_suffix: list[str] = []
-    while body_lines and body_lines[-1].strip() in {"", "}"}:
-        line = body_lines.pop()
-        if line.strip():
-            preserved_suffix.insert(0, line)
-
-    snippet_indent = indent
-    if preserved_suffix and preserved_suffix[0].strip() == "}":
-        suffix_indent = preserved_suffix[0][: len(preserved_suffix[0]) - len(preserved_suffix[0].lstrip(" \t"))]
-        snippet_indent = f"{suffix_indent}  "
-
-    snippet_lines = [f"{snippet_indent}{line}" for line in snippet.splitlines()] if snippet else []
-    replacement_body = "\n".join([*snippet_lines, *preserved_suffix])
-    if replacement_body:
-        replacement_body = f"{replacement_body}\n"
-    return f"{contents[:match.start('body')]}{replacement_body}{contents[match.end('body'):] }"
-
-
-def inject_uart_loop_body(contents: str, snippet: str) -> str:
-    pattern = re.compile(
-        r"(?P<prefix>[ \t]*/\* USER CODE END WHILE \*/\n)(?P<gap>.*?)(?P<indent>[ \t]*)/\* USER CODE BEGIN 3 \*/",
-        re.DOTALL,
-    )
-    match = pattern.search(contents)
-    if match is None:
-        raise ValueError("The USER CODE WHILE/3 loop region was not found.")
-
-    indent = match.group("indent")
-    snippet_lines = [f"{indent}{line}" for line in snippet.splitlines()] if snippet else []
-    injected_gap = "\n" + "\n".join(snippet_lines) + "\n"
-    return f"{contents[:match.start('gap')]}{injected_gap}{contents[match.end('gap'):]}"
-
-
-def ensure_user_code_3_closing_brace(contents: str) -> str:
-    pattern = re.compile(
-        r"(?P<begin>[ \t]*/\* USER CODE BEGIN 3 \*/\n)(?P<body>.*?)(?P<indent>[ \t]*)/\* USER CODE END 3 \*/",
-        re.DOTALL,
-    )
-    match = pattern.search(contents)
-    if match is None:
-        raise ValueError("USER CODE 3 block was not found.")
-
-    body = match.group("body")
-    if "}" in body:
-        return contents
-
-    indent = match.group("indent")
-    restored_body = f"{indent}}}\n"
-    return f"{contents[:match.start('body')]}{restored_body}{contents[match.end('body'):] }"
-
-
-def apply_uart_device_to_pc_firmware_patch(ioc_path: str) -> dict[str, object]:
-    project_root = source_project_root_for_ioc(ioc_path)
-    main_source_path = resolve_main_source_path(project_root)
-    contents = main_source_path.read_text(encoding="utf-8")
-
-    updated = replace_user_code_block(contents, "Includes", UART_APP_INCLUDE_SNIPPET)
-    updated = replace_user_code_block(updated, "PV", UART_APP_MESSAGE_SNIPPET)
-    updated = replace_user_code_block(updated, "2", UART_APP_BOOT_SNIPPET)
-    updated = inject_uart_loop_body(updated, UART_APP_LOOP_SNIPPET)
-    updated = ensure_user_code_3_closing_brace(updated)
-
-    if updated != contents:
-        main_source_path.write_text(updated, encoding="utf-8")
-
-    return {
-        "success": True,
-        "project_root": str(project_root),
-        "main_source_path": str(main_source_path),
-        "feature": UART_CORE_FEATURE_ID,
-    }
-
-
 async def run_runtime_validation_stage(
     *,
     plan_file: str | None,
@@ -257,6 +164,7 @@ async def run_runtime_validation_stage(
         flash_timeout_seconds=flash_timeout_seconds,
         update_plan_status=requirements_server.update_plan_status,
         orchestrate_debug_session_fn=stm32_orchestrate_debug_session,
+        stop_debug_session_fn=debug_server.stm32_debug_stop,
     )
 
 
@@ -276,7 +184,6 @@ async def run_feature_delivery_workflow(
         cubemx_timeout_seconds=cubemx_timeout_seconds,
         verify_mode=verify_mode,
         post_action=post_action,
-        uart_core_feature_id=UART_CORE_FEATURE_ID,
         requirements_decompose=requirements_server.stm32_requirements_decompose,
         summarize_execution_policy=summarize_execution_policy,
         ensure_project_metadata_for_feature_contract=ensure_project_metadata_for_feature_contract,
@@ -291,7 +198,6 @@ async def run_feature_delivery_workflow(
         construct_ioc_file=ioc_builder_server.construct_ioc_file,
         apply_ioc_change_set=ioc_builder_server.apply_ioc_change_set,
         regenerate_project_internal=cubemx_server.regenerate_project_internal,
-        apply_uart_device_to_pc_firmware_patch=apply_uart_device_to_pc_firmware_patch,
         build_project=build_server.stm32_build_project,
         select_flash_artifact=select_flash_artifact,
         flash_firmware=programmer_server.stm32_flash_firmware,
@@ -440,11 +346,14 @@ def stm32_orchestration_status() -> dict[str, object]:
 
 
 @mcp.tool(description="Route a natural-language STM32 workflow request to the most appropriate tool-domain MCP server scaffold and return the normalized result.")
-async def stm32_orchestrate_prompt(prompt: str, timeout_seconds: int = 120) -> dict[str, object]:
+async def stm32_orchestrate_prompt(prompt: str, timeout_seconds: int = 120, mode: PromptMode = "auto") -> dict[str, object]:
     return await prompt_router_workflow.route_prompt(
         prompt=prompt,
         timeout_seconds=timeout_seconds,
+        mode=mode,
         classify_prompt=classify_prompt,
+        resolve_prompt_mode=resolve_prompt_mode,
+        prompt_without_mode_prefix=prompt_without_mode_prefix,
         extract_file_path=extract_file_path,
         is_debug_question=is_debug_question,
         orchestrate_build_then_flash_fn=stm32_orchestrate_build_then_flash,

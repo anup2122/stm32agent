@@ -4,6 +4,70 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 
+PARTIAL_IOC_RECOVERY_MESSAGE = "could not complete the ioc file. use the partial ioc file, open in CubeMX and complete the remaining configuration. then call me again to complete the remaining process"
+
+
+def _xml_references_from_ioc_result(ioc_result: dict[str, object]) -> list[dict[str, object]]:
+    plan = ioc_result.get("plan")
+    if not isinstance(plan, dict) and isinstance(ioc_result.get("ioc_result"), dict):
+        nested_ioc_result = ioc_result["ioc_result"]
+        plan = nested_ioc_result.get("plan") if isinstance(nested_ioc_result, dict) else None
+    if not isinstance(plan, dict):
+        return []
+    references = plan.get("cubemx_xml_references")
+    if not isinstance(references, list):
+        return []
+    return [reference for reference in references if isinstance(reference, dict)]
+
+
+def partial_ioc_failure_details(
+    *,
+    ioc_path: object,
+    result: dict[str, object],
+    mode: str,
+) -> dict[str, object]:
+    return {
+        "ioc_completion_status": "ioc_partial",
+        "partial_ioc_path": ioc_path,
+        "recovery_message": PARTIAL_IOC_RECOVERY_MESSAGE,
+        "mode": mode,
+        "cubemx_xml_references": _xml_references_from_ioc_result(result),
+        "result": result,
+    }
+
+
+def firmware_behavior_gaps(increment_contract: dict[str, object]) -> list[str]:
+    gaps: list[str] = []
+    intents = increment_contract.get("interface_intents")
+    if not isinstance(intents, list):
+        return gaps
+
+    for intent in intents:
+        if not isinstance(intent, dict):
+            continue
+        intent_type = intent.get("type")
+        intent_role = intent.get("role")
+        gap: str | None = None
+        if intent_type == "gpio" and intent_role == "led_output":
+            gap = "IOC generation can configure the GPIO output, but requested LED runtime behavior needs firmware code in CubeMX user-code regions."
+        elif intent_type == "gpio_exti":
+            gap = "IOC generation can configure EXTI and NVIC, but requested button/event behavior needs firmware callback code in CubeMX user-code regions."
+        elif intent_type == "uart" and intent_role in {"debug_console", "device_to_pc_tx"}:
+            gap = "IOC generation can configure UART, but requested host-visible messages need firmware transmit code in CubeMX user-code regions."
+        elif intent_type == "clock" and intent_role == "runtime_pll_source_switch":
+            gap = "IOC generation can configure the clock baseline, but runtime PLL source switching needs firmware code in CubeMX user-code regions."
+        elif intent_type == "power" and intent_role == "low_power_run":
+            gap = "IOC generation can preserve the board baseline, but Low Power Run entry/exit, MSI range changes, regulator mode, and LED state behavior need firmware code in CubeMX user-code regions."
+        elif intent_type == "analog" and intent_role == "opamp_pga_signal_chain":
+            gap = "IOC generation currently preserves the board baseline, but OPAMP PGA, DAC waveform DMA, gain switching, low-power analog modes, and Cortex sleep sequencing need analog IOC mapping plus firmware code in CubeMX user-code regions."
+        elif intent_type == "lptim" and intent_role == "external_counter_low_power_pwm":
+            gap = "IOC generation currently preserves the board baseline, but LPTIM external-counter PWM, low-speed GPIO setup, STOP-mode entry, PC13 wakeup handling, and PWM stop behavior need LPTIM IOC mapping plus firmware code in CubeMX user-code regions."
+
+        if gap is not None and gap not in gaps:
+            gaps.append(gap)
+    return gaps
+
+
 async def orchestrate_feature_delivery(
     *,
     prompt: str,
@@ -12,7 +76,6 @@ async def orchestrate_feature_delivery(
     cubemx_timeout_seconds: int,
     verify_mode: object,
     post_action: object,
-    uart_core_feature_id: str,
     requirements_decompose: Callable[..., dict[str, object]],
     summarize_execution_policy: Callable[[dict[str, object]], dict[str, object] | None],
     ensure_project_metadata_for_feature_contract: Callable[[dict[str, object]], dict[str, object]],
@@ -27,7 +90,6 @@ async def orchestrate_feature_delivery(
     construct_ioc_file: Callable[..., dict[str, object]],
     apply_ioc_change_set: Callable[..., dict[str, object]],
     regenerate_project_internal: Callable[..., dict[str, object]],
-    apply_uart_device_to_pc_firmware_patch: Callable[[str], dict[str, object]],
     build_project: Callable[..., dict[str, object]],
     select_flash_artifact: Callable[[dict[str, object], str | None], tuple[str | None, str | None]],
     flash_firmware: Callable[..., Awaitable[dict[str, object]]],
@@ -179,19 +241,20 @@ async def orchestrate_feature_delivery(
             )
 
         if not ioc_result.get("success"):
+            failure_details = partial_ioc_failure_details(
+                ioc_path=ioc_result.get("ioc_path") or effective_ioc_path,
+                result=ioc_result,
+                mode=ioc_mode,
+            )
             if plan_file:
                 update_plan_status(
                     plan_file,
                     stage="ioc_builder",
                     status="failed",
-                    message=(
-                        "The managed IOC working copy could not be prepared for CubeMX generation."
-                        if should_construct_ioc
-                        else "IOC synthesis could not be applied to the configured IOC file."
-                    ),
+                    message=PARTIAL_IOC_RECOVERY_MESSAGE,
                     details={
-                        "result": ioc_result,
                         **ioc_plan_details(ioc_result, mode=ioc_mode),
+                        **failure_details,
                     },
                     increment_id=increment_id,
                 )
@@ -208,8 +271,11 @@ async def orchestrate_feature_delivery(
                 "increment_results": increment_results,
                 "ioc_result": ioc_result,
                 "ioc_validation_summary": last_ioc_validation_summary,
+                "ioc_completion_status": "ioc_partial",
+                "partial_ioc_path": failure_details.get("partial_ioc_path"),
+                "recovery_message": PARTIAL_IOC_RECOVERY_MESSAGE,
                 "plan_artifact": latest_plan,
-                "message": "IOC preparation failed, so the workflow stopped before CubeMX regeneration for the current increment.",
+                "message": PARTIAL_IOC_RECOVERY_MESSAGE,
             }
 
         if plan_file:
@@ -258,13 +324,18 @@ async def orchestrate_feature_delivery(
         }
         last_cubemx_result = cubemx_result
         if not cubemx_result.get("success"):
+            failure_details = partial_ioc_failure_details(
+                ioc_path=effective_cubemx_request.get("ioc_path") or effective_ioc_path,
+                result={"ioc_result": ioc_result, "cubemx_result": cubemx_result},
+                mode=ioc_mode,
+            )
             if plan_file:
                 update_plan_status(
                     plan_file,
                     stage="cubemx",
                     status="failed",
-                    message="CubeMX regeneration failed for the updated IOC file.",
-                    details={"result": cubemx_result},
+                    message=PARTIAL_IOC_RECOVERY_MESSAGE,
+                    details=failure_details,
                     increment_id=increment_id,
                 )
             latest_plan = latest_plan_snapshot()
@@ -281,40 +352,14 @@ async def orchestrate_feature_delivery(
                 "ioc_result": ioc_result,
                 "ioc_validation_summary": last_ioc_validation_summary,
                 "cubemx_result": cubemx_result,
+                "ioc_completion_status": "ioc_partial",
+                "partial_ioc_path": failure_details.get("partial_ioc_path"),
+                "recovery_message": PARTIAL_IOC_RECOVERY_MESSAGE,
                 "plan_artifact": latest_plan,
-                "message": "CubeMX regeneration failed, so the build and flash steps were skipped for the current increment.",
+                "message": PARTIAL_IOC_RECOVERY_MESSAGE,
             }
 
         firmware_patch_result: dict[str, object] | None = None
-        if uart_core_feature_id in increment_feature_ids:
-            try:
-                firmware_patch_result = apply_uart_device_to_pc_firmware_patch(str(effective_cubemx_request["ioc_path"]))
-            except (FileNotFoundError, ValueError) as exc:
-                if plan_file:
-                    update_plan_status(
-                        plan_file,
-                        stage="firmware_patch",
-                        status="failed",
-                        message="Post-regeneration firmware patching failed for the current increment.",
-                        details={"error": str(exc), "ioc_path": effective_cubemx_request["ioc_path"]},
-                        increment_id=increment_id,
-                    )
-                latest_plan = latest_plan_snapshot()
-                return {
-                    "server": "orchestrator",
-                    "workflow": "feature_delivery",
-                    "success": False,
-                    "stage": "firmware_patch",
-                    "requirements_result": requirements_result,
-                    "execution_policy_summary": execution_policy_summary,
-                    "increment": increment,
-                    "increment_results": increment_results,
-                    "ioc_result": ioc_result,
-                    "ioc_validation_summary": last_ioc_validation_summary,
-                    "cubemx_result": cubemx_result,
-                    "plan_artifact": latest_plan,
-                    "message": "CubeMX regeneration succeeded, but the firmware source patch could not be applied.",
-                }
         last_firmware_patch_result = firmware_patch_result
 
         if plan_file:
@@ -516,6 +561,40 @@ async def orchestrate_feature_delivery(
                     "message": "Flash succeeded, but runtime validation failed for the current increment.",
                 }
         last_runtime_validation_result = runtime_validation_result
+
+        behavior_gaps = firmware_behavior_gaps(increment_contract)
+        if behavior_gaps:
+            if plan_file:
+                update_plan_status(
+                    plan_file,
+                    stage="firmware_behavior",
+                    status="failed",
+                    message="The IOC/CubeMX flow completed, but required firmware behavior is not implemented by IOC generation alone.",
+                    details={"gaps": behavior_gaps},
+                    increment_id=increment_id,
+                )
+            latest_plan = latest_plan_snapshot()
+            return {
+                "server": "orchestrator",
+                "workflow": "feature_delivery",
+                "success": False,
+                "stage": "firmware_behavior",
+                "requirements_result": requirements_result,
+                "execution_policy_summary": execution_policy_summary,
+                "increment": increment,
+                "increment_results": increment_results,
+                "ioc_result": ioc_result,
+                "ioc_validation_summary": last_ioc_validation_summary,
+                "cubemx_result": cubemx_result,
+                "build_result": build_result,
+                "flash_result": flash_result,
+                "runtime_validation_result": runtime_validation_result,
+                "firmware_behavior_gaps": behavior_gaps,
+                "artifact_source": artifact_source,
+                "flash_skipped": False,
+                "plan_artifact": latest_plan,
+                "message": "The workflow reached hardware, but the requested behavior still needs a firmware-code generation path beyond IOC mutation.",
+            }
 
         if plan_file:
             update_plan_status(

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from stm32cubep_mcp.application.services import workflow_state
+from stm32cubep_mcp.application.services import plan_service, workflow_state
 from stm32cubep_mcp.ioc_builder import server as ioc_builder_server
 from stm32cubep_mcp.requirements.policy import derive_execution_policy
 from stm32cubep_mcp.requirements import server as requirements_server
@@ -62,6 +62,62 @@ class RequirementPhase2Tests(unittest.TestCase):
                 ]
             },
         }
+
+    def rcc_clockconfig_prompt(self) -> str:
+        return (
+            "Write a program with below requirements, build the program, download it to attached device and test it when possible. "
+            "Where required for testing send messages from device to host over uart and read them on Host side using stm32 vcp. "
+            "Keep the print statements in #if _DEBUG_PRINT #endif /*_DEBUG_PRINT*/ to disable them when required. "
+            "RCC_ClockConfig RCC Clock Config. This project has to be tested with NUCLEO-L476RG Rev C. "
+            "In this project, the clock is set to 80 MHz. Configuration of the system clock and modification of the clock settings in Run mode. "
+            "After startup SYSCLK is configured to the max frequency using the PLL with MSI as clock source, the User push-button connected to EXTI line 13 "
+            "will be used to change the PLL source from MSI to HSI and from HSI to MSI. "
+            "SYSCLK is outputted on MCO1 pin PA.08. LED2 is toggled with HAL_Delay."
+        )
+
+    def pwr_lprun_prompt(self) -> str:
+        return (
+            "Write a program with below requirements, build the program, download it to attached device and test it when possible. "
+            "Where required for testing send messages from device to host over uart and read them on Host side using stm32 vcp. "
+            "Keep the print statements in #if _DEBUG_PRINT #endif /*_DEBUG_PRINT*/ to disable them when required. "
+            "PWR_LPRUN Low Power Run Mode. This project has to be tested with NUCLEO-L476RG Rev C. "
+            "In this project, the clock is set to 80 MHz. "
+            "In the associated software, the system clock is set to 32 MHz, an EXTI line is connected to the user button through PC.13 "
+            "and configured to generate an interrupt on falling edge upon key press. "
+            "5 seconds after start-up, the system automatically enters LP RUN mode (MSI Range 0, 100 KHz) and LED2 stops toggling. "
+            "The User push-button can be pressed at any time to exit from Low Power Run. "
+            "Low Power Run Mode from FLASH uses regulator in LP mode, system running at MSI, Flash 0 wait state, Voltage Range 2. "
+            "This example can not be used in DEBUG mode."
+        )
+
+    def opamp_pga_prompt(self) -> str:
+        return (
+            "Write a program with below requirements, build the program, download it to attached device and test it when possible. "
+            "Where required for testing send messages from device to host over uart and read them on Host side using stm32 vcp. "
+            "Keep the print statements in #if _DEBUG_PRINT #endif /*_DEBUG_PRINT*/ to disable them when required. "
+            "OPAMP_PGA Amplify an applied signal. This project has to be tested with NUCLEO-L476RG Rev C. "
+            "In this project, the clock is set to 80 MHz. "
+            "The example uses the built-in PGA mode. The DMA provides samples sinewave to the DAC. "
+            "The DAC peripheral generates a sine wave signal on DAC_OUT2 (PA5) which is amplified by OPAMP1. "
+            "The OPAMP2 amplified output is on PA3 with gain of either 2 or 4. "
+            "The OPAMP gain is changed on the fly while OPAMP remains enabled. "
+            "The OPAMP is used in both normal and low power mode. The Cortex can be set into sleep mode with no DMA interrupt handling."
+        )
+
+    def lptim_low_power_pwm_prompt(self) -> str:
+        return (
+            "Write a program with below requirements, build the program, download it to attached device and test it when possible. "
+            "Where required for testing send messages from device to host over uart and read them on Host side using stm32 vcp. "
+            "Keep the print statements in #if _DEBUG_PRINT #endif /*_DEBUG_PRINT*/ to disable them when required. "
+            "Configure and use, through the HAL LPTIM API, the LPTIM peripheral using an external counter clock, "
+            "to generate a PWM signal at the lowest power consumption. "
+            "The Autorelaod equal to 99 so the output frequency will be equal to the external counter clock divided by 100. "
+            "Pulse value equal to 49 and the duty cycle is 50%. "
+            "After starting generating the PWM signal, the MCU enters in STOP mode. "
+            "GPIOs are configured in Low Speed to lower the consumption. "
+            "User push-button pin PC.13 is configured as input with external interrupt External line 13, falling edge. "
+            "When User push-button is pressed, wakeup event is generated and PWM signal generation is stopped."
+        )
 
     def test_policy_classifier_distinguishes_strict_build_only_prompt(self) -> None:
         policy = derive_execution_policy("Create a NUCLEO-L476RG project, build only, do not flash, and run and test it later")
@@ -236,6 +292,199 @@ class RequirementPhase2Tests(unittest.TestCase):
         self.assertEqual(intent_by_id["iface-rtc-alarm-a"]["alarm_time_hms"], (2, 20, 30))
         self.assertEqual(intent_by_id["iface-rtc-alarm-a"]["alarm_after_seconds"], 30)
         self.assertIn("iface-host-debug-uart", intent_by_id)
+
+    def test_requirements_decompose_breaks_rcc_clockconfig_into_incremental_contract(self) -> None:
+        result = requirements_server.stm32_requirements_decompose(self.rcc_clockconfig_prompt(), persist_plan=False)
+
+        self.assertTrue(result["success"])
+        contract = result["contract"]
+        self.assertEqual(
+            [increment["feature_ids"] for increment in contract["increments"]],
+            [
+                ["core-rcc-clockconfig-baseline"],
+                ["core-led2-status-output"],
+                ["pluggable-rcc-pll-source-switch"],
+                ["pluggable-host-debug-uart"],
+            ],
+        )
+        intent_by_id = {intent["id"]: intent for intent in contract["interface_intents"]}
+        self.assertEqual(intent_by_id["iface-clock-system"]["role"], "rcc_clockconfig_baseline")
+        self.assertEqual(intent_by_id["iface-clock-system"]["initial_pll_source"], "MSI")
+        self.assertEqual(intent_by_id["iface-clock-system"]["mco_pin"], "PA8")
+        self.assertEqual(intent_by_id["iface-rcc-pll-source-switch"]["role"], "runtime_pll_source_switch")
+        self.assertEqual(intent_by_id["iface-rcc-pll-source-switch"]["alternate_pll_source"], "HSI")
+        self.assertIn("iface-button-pc13", intent_by_id)
+        self.assertEqual(intent_by_id["iface-host-debug-uart"]["macro_guard"], "_DEBUG_PRINT")
+
+    def test_requirements_decompose_preserves_pwr_lprun_as_firmware_increment(self) -> None:
+        result = requirements_server.stm32_requirements_decompose(self.pwr_lprun_prompt(), persist_plan=False)
+
+        self.assertTrue(result["success"])
+        contract = result["contract"]
+        self.assertEqual(
+            [increment["feature_ids"] for increment in contract["increments"]],
+            [
+                ["core-clock-80000000"],
+                ["core-pwr-low-power-run"],
+                ["core-led2-status-output"],
+                ["pluggable-user-button-fault-trigger"],
+                ["pluggable-host-debug-uart"],
+            ],
+        )
+        intent_by_id = {intent["id"]: intent for intent in contract["interface_intents"]}
+        self.assertIn("iface-pwr-low-power-run", intent_by_id)
+        self.assertEqual(intent_by_id["iface-pwr-low-power-run"]["role"], "low_power_run")
+        self.assertEqual(intent_by_id["iface-pwr-low-power-run"]["run_mode_clock_hz"], 32000000)
+        self.assertEqual(intent_by_id["iface-pwr-low-power-run"]["low_power_clock_hz"], 100000)
+        self.assertEqual(intent_by_id["iface-pwr-low-power-run"]["enter_after_seconds"], 5.0)
+        self.assertEqual(intent_by_id["iface-pwr-low-power-run"]["exit_button_pin"], "PC13")
+        self.assertFalse(intent_by_id["iface-pwr-low-power-run"]["debug_mode_supported"])
+
+    def test_ioc_builder_keeps_pwr_lprun_increment_as_valid_baseline_with_codegen_hints(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.pwr_lprun_prompt())
+        low_power_contract = workflow_state.contract_for_increment(contract, contract["increments"][1])
+
+        result = ioc_builder_server.synthesize_ioc_change_set(low_power_contract)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["current_increment"]["feature_ids"], ["core-pwr-low-power-run"])
+        self.assertIn("Low Power Run", " ".join(result["codegen_hints"]))
+
+    def test_requirements_decompose_preserves_opamp_pga_as_analog_increment(self) -> None:
+        result = requirements_server.stm32_requirements_decompose(self.opamp_pga_prompt(), persist_plan=False)
+
+        self.assertTrue(result["success"])
+        contract = result["contract"]
+        self.assertEqual(
+            [increment["feature_ids"] for increment in contract["increments"]],
+            [
+                ["core-clock-80000000"],
+                ["core-opamp-pga-signal-chain"],
+                ["pluggable-host-debug-uart"],
+            ],
+        )
+        intent_by_id = {intent["id"]: intent for intent in contract["interface_intents"]}
+        self.assertIn("iface-opamp-pga-signal-chain", intent_by_id)
+        analog_intent = intent_by_id["iface-opamp-pga-signal-chain"]
+        self.assertEqual(analog_intent["role"], "opamp_pga_signal_chain")
+        self.assertEqual(analog_intent["dac_output_signal"], "DAC_OUT2")
+        self.assertEqual(analog_intent["dac_output_pin"], "PA5")
+        self.assertEqual(analog_intent["opamp_output_pin"], "PA3")
+        self.assertEqual(analog_intent["gain_values"], [2, 4])
+        self.assertTrue(analog_intent["requires_dac_dma_sine"])
+        self.assertTrue(analog_intent["requires_cortex_sleep"])
+        self.assertTrue(analog_intent["requires_no_dma_interrupt_handling"])
+
+    def test_ioc_builder_keeps_opamp_pga_increment_as_valid_baseline_with_codegen_hints(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.opamp_pga_prompt())
+        analog_contract = workflow_state.contract_for_increment(contract, contract["increments"][1])
+
+        result = ioc_builder_server.synthesize_ioc_change_set(analog_contract)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["current_increment"]["feature_ids"], ["core-opamp-pga-signal-chain"])
+        self.assertIn("OPAMP PGA", " ".join(result["codegen_hints"]))
+
+    def test_requirements_decompose_preserves_lptim_low_power_pwm_as_increment(self) -> None:
+        result = requirements_server.stm32_requirements_decompose(self.lptim_low_power_pwm_prompt(), persist_plan=False)
+
+        self.assertTrue(result["success"])
+        contract = result["contract"]
+        self.assertEqual(
+            [increment["feature_ids"] for increment in contract["increments"]],
+            [
+                ["core-lptim-external-counter-low-power-pwm"],
+                ["pluggable-user-button-fault-trigger"],
+                ["pluggable-host-debug-uart"],
+            ],
+        )
+        intent_by_id = {intent["id"]: intent for intent in contract["interface_intents"]}
+        self.assertIn("iface-lptim-external-counter-pwm", intent_by_id)
+        lptim_intent = intent_by_id["iface-lptim-external-counter-pwm"]
+        self.assertEqual(lptim_intent["role"], "external_counter_low_power_pwm")
+        self.assertEqual(lptim_intent["autoreload"], 99)
+        self.assertEqual(lptim_intent["pulse"], 49)
+        self.assertEqual(lptim_intent["output_frequency_divider"], 100)
+        self.assertEqual(lptim_intent["duty_cycle_percent"], 50.0)
+        self.assertTrue(lptim_intent["requires_stop_mode"])
+        self.assertTrue(lptim_intent["requires_low_speed_gpio"])
+        self.assertEqual(lptim_intent["wakeup_pin"], "PC13")
+
+    def test_ioc_builder_keeps_lptim_low_power_pwm_increment_as_valid_baseline_with_codegen_hints(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.lptim_low_power_pwm_prompt())
+        lptim_contract = workflow_state.contract_for_increment(contract, contract["increments"][0])
+
+        result = ioc_builder_server.synthesize_ioc_change_set(lptim_contract)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["current_increment"]["feature_ids"], ["core-lptim-external-counter-low-power-pwm"])
+        self.assertIn("LPTIM external-counter PWM", " ".join(result["codegen_hints"]))
+
+    def test_next_pending_increment_ignores_stale_plan_status_when_increment_identity_changes(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.lptim_low_power_pwm_prompt())
+        stale_plan = {
+            "increments": [
+                {
+                    "id": "increment-core-001",
+                    "feature_ids": ["core-generic-engineering-spec"],
+                    "interface_intent_ids": [],
+                    "status": "completed",
+                }
+            ]
+        }
+
+        pending = workflow_state.next_pending_increment(stale_plan, contract)
+
+        self.assertEqual(pending[0]["feature_ids"], ["core-lptim-external-counter-low-power-pwm"])
+
+    def test_plan_merge_does_not_preserve_status_when_increment_identity_changes(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.lptim_low_power_pwm_prompt())
+        stale_existing = plan_service.initial_plan_artifact(contract)
+        stale_existing["increments"][0]["feature_ids"] = ["core-generic-engineering-spec"]
+        stale_existing["increments"][0]["interface_intent_ids"] = []
+        stale_existing["increments"][0]["status"] = "completed"
+
+        merged = plan_service.merge_existing_plan_artifact(stale_existing, contract)
+
+        self.assertEqual(merged["increments"][0]["feature_ids"], ["core-lptim-external-counter-low-power-pwm"])
+        self.assertEqual(merged["increments"][0]["status"], "pending")
+
+    def test_plan_merge_does_not_preserve_completed_status_with_stale_completion_message(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.lptim_low_power_pwm_prompt())
+        stale_existing = plan_service.initial_plan_artifact(contract)
+        stale_existing["increments"][0]["status"] = "completed"
+        stale_existing["increments"][0]["last_message"] = "Implement Translate engineering specification into an IOC baseline workflow completed successfully."
+
+        merged = plan_service.merge_existing_plan_artifact(stale_existing, contract)
+
+        self.assertEqual(merged["increments"][0]["feature_ids"], ["core-lptim-external-counter-low-power-pwm"])
+        self.assertEqual(merged["increments"][0]["status"], "pending")
+
+    def test_ioc_builder_compiles_rcc_clockconfig_baseline_and_switch_increments(self) -> None:
+        contract = requirements_server.build_requirements_contract(self.rcc_clockconfig_prompt())
+        baseline_contract = workflow_state.contract_for_increment(contract, contract["increments"][0])
+        switch_contract = workflow_state.contract_for_increment(contract, contract["increments"][2])
+
+        baseline_result = ioc_builder_server.synthesize_ioc_change_set(baseline_contract)
+        switch_result = ioc_builder_server.synthesize_ioc_change_set(switch_contract)
+
+        self.assertTrue(baseline_result["success"])
+        self.assertIn("RCC", baseline_result["enabled_peripherals"])
+        self.assertIn("PA8", baseline_result["used_pins"])
+        self.assertIn({"key": "PA8.Signal", "value": "RCC_MCO"}, baseline_result["ioc_properties"])
+        self.assertIn({"key": "PA8.Mode", "value": "Clock-out"}, baseline_result["ioc_properties"])
+        self.assertIn({"key": "RCC.PLLSourceVirtual", "value": "RCC_PLLSOURCE_MSI"}, baseline_result["ioc_properties"])
+        self.assertIn({"key": "RCC.PLLN", "value": 40}, baseline_result["ioc_properties"])
+        self.assertIn({"key": "RCC.SYSCLKFreq_VALUE", "value": 80000000}, baseline_result["ioc_properties"])
+        self.assertIn({"key": "RCC.RCC_MCO1Source", "value": "RCC_MCO1SOURCE_SYSCLK"}, baseline_result["ioc_properties"])
+        self.assertIn({"key": "RCC.RCC_MCODiv", "value": "RCC_MCODIV_1"}, baseline_result["ioc_properties"])
+        self.assertTrue(
+            any(reference["kind"] == "ip_modes" and reference["ip"] == "RCC" for reference in baseline_result["cubemx_xml_references"])
+        )
+        self.assertTrue(switch_result["success"])
+        self.assertIn("PC13", switch_result["used_pins"])
+        self.assertIn({"key": "PC13.Signal", "value": "GPXTI13"}, switch_result["ioc_properties"])
+        self.assertIn({"key": "NVIC.EXTI15_10_IRQn", "value": "true\\:0\\:0\\:false\\:false\\:true\\:true\\:true"}, switch_result["ioc_properties"])
 
     def test_ioc_builder_can_construct_baseline_for_clock_only_engineering_spec_prompt(self) -> None:
         prompt = (

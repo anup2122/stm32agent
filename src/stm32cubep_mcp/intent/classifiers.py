@@ -7,6 +7,7 @@ SUPPORTED_PROMPT_FAMILIES = [
     "NUCLEO-L476RG LED blink",
     "NUCLEO-L476RG button event to PC",
     "NUCLEO-L476RG RTC alarm",
+    "NUCLEO-L476RG RCC ClockConfig runtime PLL source switch",
     "NUCLEO-L476RG generic engineering specification intake",
 ]
 
@@ -54,6 +55,9 @@ ENGINEERING_SPEC_TOKENS = (
     "rtc alarm",
     "hal_rtc_setalarm_it",
     "rtc peripheral configuration",
+    "rcc_clockconfig",
+    "pll source",
+    "mco1",
 )
 
 
@@ -64,4 +68,4 @@ def looks_like_engineering_feature_spec(prompt: str) -> bool:
         return False
     if any(token in lowered for token in ENGINEERING_SPEC_TOKENS):
         return True
-    return bool(re.search(r"\bconfigur(?:e|es|ed|ing)\b.*\b(project|tim|timer|dma|pwm|wwdg|watchdog|exti|gpio|rtc|alarm)\b", lowered))
+    return bool(re.search(r"\bconfigur(?:e|es|ed|ing)\b.*\b(project|tim|timer|dma|pwm|wwdg|watchdog|exti|gpio|rtc|alarm|rcc|clock|pll|mco)\b", lowered))

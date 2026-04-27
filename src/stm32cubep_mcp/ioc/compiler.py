@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from ..ioc_builder.ioc_model import build_ioc_model
+from ..ioc.db_index import local_cubemx_db_index
+from ..knowledge.cubemx_db import cubemx_xml_references_for_ip
 from ..requirements_ioc_contract import validate_contract
 from .board_catalog import get_board_profile
 from .mcu_catalog import resolve_mcu_metadata
@@ -9,6 +11,8 @@ from .validator import validate_ioc_model
 
 SUPPORTED_INTENT_ROLES: set[tuple[str | None, str | None]] = {
     ("clock", "system_clock"),
+    ("clock", "rcc_clockconfig_baseline"),
+    ("clock", "runtime_pll_source_switch"),
     ("watchdog", "window_watchdog"),
     ("rtc", "alarm_a"),
     ("timer_pwm", "pwm_output"),
@@ -18,6 +22,9 @@ SUPPORTED_INTENT_ROLES: set[tuple[str | None, str | None]] = {
     ("uart", "debug_console"),
     ("gpio", "led_output"),
     ("gpio_exti", "user_button"),
+    ("power", "low_power_run"),
+    ("analog", "opamp_pga_signal_chain"),
+    ("lptim", "external_counter_low_power_pwm"),
 }
 
 
@@ -47,6 +54,20 @@ def _unsupported_interface_intent_errors(contract: dict[str, object]) -> list[st
             f"Interface intent '{intent_id}' with type '{intent_type}' and role '{intent_role}' is not compiled by the IOC Builder yet."
         )
     return errors
+
+
+def _xml_references_for_model(model) -> list[dict[str, object]]:
+    references: list[dict[str, object]] = []
+    try:
+        index = local_cubemx_db_index()
+    except (FileNotFoundError, OSError):
+        return references
+
+    for peripheral in _unique_preserving_order(list(model.required_peripherals)):
+        for reference in cubemx_xml_references_for_ip(index, model.grouped_mcu_name, peripheral):
+            if reference not in references:
+                references.append(reference)
+    return references
 
 
 def compile_model_to_ioc_operations(model, *, source_requirement_ids: list[str]) -> list[IocOperation]:
@@ -269,6 +290,7 @@ def compile_contract_to_ioc_plan(contract: dict[str, object]) -> dict[str, objec
         if isinstance(feature_id, str) and feature_id.strip()
     ]
     operations = compile_model_to_ioc_operations(model, source_requirement_ids=source_requirement_ids)
+    xml_references = _xml_references_for_model(model)
     enabled_peripherals = [
         str(operation.value)
         for operation in operations
@@ -306,6 +328,7 @@ def compile_contract_to_ioc_plan(contract: dict[str, object]) -> dict[str, objec
         "enabled_peripherals": enabled_peripherals,
         "used_pins": used_pins,
         "ioc_properties": ioc_properties,
+        "cubemx_xml_references": xml_references,
         "codegen_hints": list(model.codegen_hints),
         "message": "The IOC operation plan was compiled deterministically from the requirements contract.",
     }

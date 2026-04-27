@@ -1,0 +1,25 @@
+{
+  "servers": {
+    "stm32orchestrator": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32-orchestrator-mcp.exe"
+    },
+    "stm32cubeprogrammer": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32cubeprogrammer-mcp.exe"
+    },
+    "stm32build": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32-build-mcp.exe"
+    },
+    "stm32debug": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32-debug-mcp.exe"
+    },
+    "stm32cubemx": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32-cubemx-mcp.exe"
+    },
+    "stm32requirements": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32-requirements-mcp.exe"
+    },
+    "stm32iocbuilder": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\stm32-ioc-builder-mcp.exe"
+    }
+  }
+}

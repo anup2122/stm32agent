@@ -175,32 +175,6 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('"project_path"', normalized_text)
             self.assertIn('"import_project": true', normalized_text)
 
-    def test_apply_uart_device_to_pc_firmware_patch_injects_transmit_loop(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_root = Path(temp_dir) / "generated-project"
-            source_dir = project_root / "Src"
-            source_dir.mkdir(parents=True)
-            ioc_path = project_root / "board.ioc"
-            ioc_path.write_text("stub", encoding="utf-8")
-            main_source = source_dir / "main.c"
-            main_source.write_text(
-                """#include \"main.h\"\n\n/* USER CODE BEGIN Includes */\n\n/* USER CODE END Includes */\n\n/* USER CODE BEGIN PV */\n\n/* USER CODE END PV */\n\nint main(void)\n{\n  /* USER CODE BEGIN 2 */\n\n  /* USER CODE END 2 */\n\n  /* USER CODE BEGIN WHILE */\n  while (1)\n  {\n    /* USER CODE END WHILE */\n\n    /* USER CODE BEGIN 3 */\n  }\n  /* USER CODE END 3 */\n}\n""",
-                encoding="utf-8",
-            )
-
-            result = orchestrator_server.apply_uart_device_to_pc_firmware_patch(str(ioc_path))
-
-            patched = main_source.read_text(encoding="utf-8")
-            self.assertTrue(result["success"])
-            self.assertIn("#include <string.h>", patched)
-            self.assertIn("STM32CubeP USART2 telemetry ready", patched)
-            self.assertIn("HAL_UART_Transmit(&huart2", patched)
-            self.assertIn("HAL_Delay(1000);", patched)
-            self.assertIn(
-                "while (1)\n  {\n    /* USER CODE END WHILE */\n\n    HAL_UART_Transmit(&huart2, (uint8_t *)uart_message, strlen(uart_message), HAL_MAX_DELAY);\n    HAL_Delay(1000);\n    /* USER CODE BEGIN 3 */\n  }\n  /* USER CODE END 3 */",
-                patched,
-            )
-
     def test_classify_prompt_routes_known_domains(self) -> None:
         self.assertEqual(orchestrator_server.classify_prompt("build the project"), "build")
         self.assertEqual(orchestrator_server.classify_prompt("build and flash the current project"), "build_flash")
@@ -208,6 +182,13 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(orchestrator_server.classify_prompt("parse the .ioc file"), "cubemx")
         self.assertEqual(orchestrator_server.classify_prompt("flash this firmware"), "cube_programmer")
         self.assertEqual(orchestrator_server.classify_prompt("Create a NUCLEO-L476RG project that will send data to PC"), "requirements")
+        self.assertEqual(orchestrator_server.classify_prompt("add a new MCP tool for UART VCP detection"), "develop_agent")
+
+    def test_resolve_prompt_mode_defaults_agent_work_to_develop_agent(self) -> None:
+        self.assertEqual(orchestrator_server.resolve_prompt_mode("add a new MCP tool"), "develop-agent")
+        self.assertEqual(orchestrator_server.resolve_prompt_mode("build the current project"), "test-only")
+        self.assertEqual(orchestrator_server.resolve_prompt_mode("Create a NUCLEO-L476RG project that sends data to PC"), "firmware-delivery")
+        self.assertEqual(orchestrator_server.resolve_prompt_mode("test-only: Create a NUCLEO-L476RG project"), "test-only")
 
     def test_classify_prompt_routes_verbose_engineering_spec_to_requirements(self) -> None:
         prompt = (
@@ -241,6 +222,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
 
         stm32_orchestrate_debug_session.assert_awaited_once_with(timeout_seconds=45)
         self.assertEqual(result["selected_domain"], "debug")
+        self.assertEqual(result["resolved_mode"], "test-only")
 
     @patch("stm32cubep_mcp.orchestrator.server.stm32_orchestrate_debug_question", new_callable=AsyncMock)
     async def test_orchestrate_prompt_routes_debug_questions(self, stm32_orchestrate_debug_question: AsyncMock) -> None:
@@ -276,6 +258,20 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             cubemx_timeout_seconds=300,
         )
         self.assertEqual(result["selected_domain"], "requirements")
+        self.assertEqual(result["resolved_mode"], "firmware-delivery")
+
+    @patch("stm32cubep_mcp.orchestrator.server.stm32_orchestrate_feature_prompt", new_callable=AsyncMock)
+    async def test_orchestrate_prompt_develop_agent_skips_firmware_delivery(self, stm32_orchestrate_feature_prompt: AsyncMock) -> None:
+        stm32_orchestrate_feature_prompt.return_value = {"server": "orchestrator", "success": True}
+
+        result = await orchestrator_server.stm32_orchestrate_prompt(
+            "add a new MCP tool for UART VCP detection",
+            timeout_seconds=45,
+        )
+
+        stm32_orchestrate_feature_prompt.assert_not_awaited()
+        self.assertEqual(result["resolved_mode"], "develop-agent")
+        self.assertEqual(result["selected_domain"], "develop_agent")
 
     @patch("stm32cubep_mcp.orchestrator.server.stm32_orchestrate_feature_prompt", new_callable=AsyncMock)
     async def test_orchestrate_prompt_routes_verbose_engineering_spec_to_requirements(
@@ -496,7 +492,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["execution_policy_summary"]["ask_user_on_repeated_failures"])
         self.assertEqual(result["ioc_validation_summary"]["status"], "accepted")
         self.assertEqual(result["ioc_validation_summary"]["mode"], "apply")
-        self.assertTrue(result["firmware_patch_result"]["success"])
+        self.assertIsNone(result["firmware_patch_result"])
         stm32_orchestrate_debug_session.assert_awaited_once_with(
             session_name="feature-runtime-validation",
             reset_before_launch=False,
@@ -509,6 +505,85 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             if call.kwargs.get("stage") == "cubemx" and call.kwargs.get("status") == "in_progress"
         )
         self.assertEqual(cubemx_in_progress_call.kwargs["details"]["cubemx_validation"]["validation"], "accepted")
+
+    @patch("stm32cubep_mcp.orchestrator.server.requirements_server.update_plan_status")
+    @patch("stm32cubep_mcp.orchestrator.server.programmer_server.stm32_flash_firmware", new_callable=AsyncMock)
+    @patch("stm32cubep_mcp.orchestrator.server.build_server.stm32_build_project")
+    @patch("stm32cubep_mcp.orchestrator.server.configured_cubemx_request")
+    @patch("stm32cubep_mcp.orchestrator.server.cubemx_server.regenerate_project_internal")
+    @patch("stm32cubep_mcp.orchestrator.server.ioc_builder_server.construct_ioc_file")
+    @patch("stm32cubep_mcp.orchestrator.server.ioc_builder_server.apply_ioc_change_set")
+    @patch("stm32cubep_mcp.orchestrator.server.requirements_server.stm32_requirements_decompose")
+    async def test_feature_delivery_reports_partial_ioc_handoff_when_ioc_builder_fails(
+        self,
+        stm32_requirements_decompose: object,
+        apply_ioc_change_set: object,
+        construct_ioc_file: object,
+        regenerate_project_internal: object,
+        configured_cubemx_request: object,
+        stm32_build_project: object,
+        stm32_flash_firmware: AsyncMock,
+        update_plan_status: object,
+    ) -> None:
+        handoff_message = "could not complete the ioc file. use the partial ioc file, open in CubeMX and complete the remaining configuration. then call me again to complete the remaining process"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ioc_path = Path(temp_dir) / "partial.ioc"
+            ioc_path.write_text("stub", encoding="utf-8")
+            plan_path = Path(temp_dir) / "plan.md"
+            stm32_requirements_decompose.return_value = {
+                "success": True,
+                "contract": {
+                    "plan_file": str(plan_path),
+                    "current_increment": {"id": "increment-core-001", "feature_ids": ["core-clock"]},
+                    "core_features": [{"id": "core-clock"}],
+                    "pluggable_features": [],
+                    "execution_policy": {
+                        "mode": "incremental",
+                        "ioc_cubemx_validation": "required",
+                        "build_after_each_increment": True,
+                        "flash_after_successful_build": True,
+                        "runtime_check_after_flash": True,
+                        "ask_user_on_repeated_failures": False,
+                    },
+                },
+                "plan_artifact": {"plan_path": str(plan_path), "plan": {"increments": [{"id": "increment-core-001", "status": "pending"}]}},
+            }
+            apply_ioc_change_set.return_value = {
+                "success": False,
+                "ioc_path": str(ioc_path),
+                "plan": {
+                    "cubemx_xml_references": [
+                        {"kind": "ip_modes", "ip": "RCC", "path": "RCC-Modes.xml"},
+                    ],
+                },
+                "cubemx_validation": {"success": False, "validation": "rejected", "message": "IP not ready"},
+            }
+            configured_cubemx_request.return_value = {
+                "ioc_path": str(ioc_path),
+                "project_name": "partial",
+                "project_toolchain": "STM32CubeIDE",
+                "project_path": str(Path(temp_dir) / "project"),
+            }
+
+            result = await orchestrator_server.stm32_orchestrate_feature_prompt("Create a partial IOC")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ioc_builder")
+        self.assertEqual(result["message"], handoff_message)
+        self.assertEqual(result["ioc_completion_status"], "ioc_partial")
+        self.assertEqual(result["partial_ioc_path"], str(ioc_path))
+        construct_ioc_file.assert_not_called()
+        regenerate_project_internal.assert_not_called()
+        stm32_build_project.assert_not_called()
+        stm32_flash_firmware.assert_not_awaited()
+        failure_call = next(
+            call for call in update_plan_status.call_args_list
+            if call.kwargs.get("stage") == "ioc_builder" and call.kwargs.get("status") == "failed"
+        )
+        self.assertEqual(failure_call.kwargs["message"], handoff_message)
+        self.assertEqual(failure_call.kwargs["details"]["ioc_completion_status"], "ioc_partial")
+        self.assertEqual(failure_call.kwargs["details"]["partial_ioc_path"], str(ioc_path))
+        self.assertEqual(failure_call.kwargs["details"]["recovery_message"], handoff_message)
 
     @patch("stm32cubep_mcp.orchestrator.server.requirements_server.update_plan_status")
     @patch("stm32cubep_mcp.orchestrator.server.programmer_server.stm32_flash_firmware", new_callable=AsyncMock)
@@ -632,7 +707,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         second_increment_contract = apply_ioc_change_set.call_args.args[0]
         self.assertEqual(second_increment_contract["current_increment"]["id"], "increment-core-002")
         self.assertEqual(second_increment_contract["core_features"][0]["id"], "core-uart-device-to-pc")
-        self.assertTrue(result["firmware_patch_result"]["success"])
+        self.assertIsNone(result["firmware_patch_result"])
 
     @patch("stm32cubep_mcp.orchestrator.server.requirements_server.update_plan_status")
     @patch("stm32cubep_mcp.orchestrator.server.programmer_server.stm32_flash_firmware", new_callable=AsyncMock)
@@ -795,7 +870,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["execution_policy_summary"]["ask_user_on_repeated_failures"])
         self.assertEqual(result["ioc_validation_summary"]["status"], "accepted")
         self.assertEqual(result["ioc_validation_summary"]["mode"], "construct")
-        self.assertTrue(result["firmware_patch_result"]["success"])
+        self.assertIsNone(result["firmware_patch_result"])
         cubemx_in_progress_call = next(
             call
             for call in update_plan_status.call_args_list

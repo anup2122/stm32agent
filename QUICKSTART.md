@@ -30,10 +30,18 @@ From PowerShell in the project folder:
 .\scripts\install-dev.ps1
 ```
 
+For local MCP registration, use `config/mcp.example.json` as the template for `.vscode/mcp.json`.
+
 Optional check:
 
 ```powershell
 .\scripts\smoke-test.ps1
+```
+
+Check whether this workspace is ready to expose and use the local MCP servers:
+
+```powershell
+.\scripts\check-agent-ready.ps1
 ```
 
 ## Simple Prompts To Use
