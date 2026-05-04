@@ -150,7 +150,7 @@ def resolve_cubemx_launcher(discovery: dict[str, object]) -> dict[str, object]:
     launch_kind = discovery.get("launch_kind")
     if not isinstance(resolved_path, str):
         raise FileNotFoundError(
-            "STM32CubeMX was not found. Set STM32CUBEMX_PATH or update config/stm32-tools.local.json with a valid executable or JAR path."
+            "STM32CubeMX was not found. Set STM32CUBEMX_PATH or update config/stm32-tools.local.jsonc with a valid executable or JAR path."
         )
     if launch_kind == "jar":
         java_path = discovery.get("java_path")

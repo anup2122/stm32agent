@@ -17,14 +17,14 @@ Create a complete STM32 Copilot workflow that can understand project context, bu
 
 ### Local host tools
 
-- File: `stm32-tools.local.json`
+- File: `stm32-tools.local.jsonc`
 - Scope: machine-local, shared by all STM32 projects on that machine
 - Purpose: store executable paths, overrides, and host-specific discovery hints
 - Characteristics: optional, non-intrusive, no elevation required, cross-platform schema
 
 ### Project metadata
 
-- File: `stm32-project.json`
+- File: `stm32-project.jsonc`
 - Scope: project-specific
 - Purpose: board, MCU, build system, output artifacts, debug profile, and project facts
 
@@ -46,7 +46,7 @@ Create a complete STM32 Copilot workflow that can understand project context, bu
 ### Orchestration MCP server
 
 - Main Copilot-facing server for STM32 workflows
-- Reads `stm32-tools.local.json` and `stm32-project.json`
+- Reads `stm32-tools.local.jsonc` and `stm32-project.jsonc`
 - Selects the right backend tools
 - Normalizes results and workflow state
 - Exposes higher-level tools such as build, flash, debug, diagnose, and repair loops
@@ -59,8 +59,8 @@ Create a complete STM32 Copilot workflow that can understand project context, bu
 
 ## Near-Term Roadmap
 
-1. Define the schema for `stm32-tools.local.json` - completed in `src/stm32cubep_mcp/schemas/stm32-tools.local.schema.json`
-2. Define the schema for `stm32-project.json` - completed in `src/stm32cubep_mcp/schemas/stm32-project.schema.json`
+1. Define the schema for `stm32-tools.local.jsonc` - completed in `src/stm32cubep_mcp/schemas/stm32-tools.local.schema.json`
+2. Define the schema for `stm32-project.jsonc` - completed in `src/stm32cubep_mcp/schemas/stm32-project.schema.json`
 3. Add host tool discovery and capability reporting - completed through `stm32_discover_host_tools` and `stm32_report_host_capabilities`
 4. Add build MCP support - started with real CubeIDE headless build execution in `src/stm32cubep_mcp/build/server.py`
 5. Add debug MCP support with structured debug snapshots - started with a Phase 1 ST-LINK GDB server MCP in `src/stm32cubep_mcp/debug/server.py`
@@ -83,7 +83,7 @@ Current saved state:
 - Scaffolded domain servers:
 	- CubeMX MCP in `src/stm32cubep_mcp/cubemx/server.py`
 - Orchestration MCP exists in `src/stm32cubep_mcp/orchestrator/server.py`, includes a native build-then-flash workflow, and now routes debug prompts into the Phase 1 Debug MCP launch entry point.
-- Build MCP is validated against the external `CORTEXM_SysTick` CubeIDE project configured in `config/stm32-project.json`.
+- Build MCP is validated against the external `CORTEXM_SysTick` CubeIDE project configured in `config/stm32-project.jsonc`.
 - Latest real build validation succeeded for `CORTEXM_SysTick/Release`.
 - Latest build-to-device validation succeeded for `CORTEXM_SysTick/Release` through the orchestrator.
 - Latest debug-host validation found `ST-LINK_gdbserver.exe` version, ST-LINK probe discovery, reset, launch, status, and stop all working after moving debug ports off the Windows excluded `61217-61316` range.
@@ -98,7 +98,7 @@ Useful resume prompts:
 
 ## Current Decisions
 
-- Use `stm32-tools.local.json` for machine-local tool definitions
+- Use `stm32-tools.local.jsonc` for machine-local tool definitions
 - Do not use instructions as the main storage for tool paths
 - Keep the setup non-intrusive and avoid requiring elevation
 - Target Windows, Linux, and macOS as host operating systems

@@ -99,7 +99,7 @@ def resolve_generation_root(ioc_path: Path, output_root: str | None = None, proj
     configured_project_path = load_cubemx_metadata_fn().get("project_path")
     if isinstance(configured_project_path, str) and configured_project_path.strip():
         return Path(configured_project_path).expanduser().resolve()
-    raise ValueError("CubeMX project_path is required. Set cubemx.project_path in config/stm32-project.json.")
+    raise ValueError("CubeMX project_path is required. Set cubemx.project_path in config/stm32-project.jsonc.")
 
 
 def build_cubemx_script(ioc_path: Path, project_name: str, project_toolchain: str, project_path: Path) -> str:

@@ -49,7 +49,7 @@ def parse_ioc_summary(
             "ioc_path": ioc_path,
             "ioc_exists": False,
             "ioc_discovery": ioc_discovery,
-            "message": "No IOC file could be resolved. Set firmware.ioc_path in config/stm32-project.json.",
+            "message": "No IOC file could be resolved. Set firmware.ioc_path in config/stm32-project.jsonc.",
         }
 
     resolved_ioc = Path(resolved_path)

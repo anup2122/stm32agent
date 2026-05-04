@@ -122,7 +122,7 @@ The preferred host-tool resolution order is:
 
 1. explicit request override when a workflow provides one
 2. environment variable override for CI, containers, and non-VS Code clients
-3. machine-local `stm32-tools.local.json`
+3. machine-local `stm32-tools.local.jsonc`
 4. OS-specific discovery through adapter modules and standard install paths
 5. readiness or bootstrap guidance when no valid tool path is found
 
@@ -154,6 +154,33 @@ The current refactor in this repository follows that split more strictly:
 This is why CubeIDE and CubeMX already fit naturally into adapters, and why the
 same structure should be applied to STM32CubeProgrammer, ST-LINK GDB server,
 and ARM GDB over time.
+
+### 7. Configuration Should Be Split By Scope
+
+The repository now treats configuration as three separate JSONC surfaces rather
+than one mixed file.
+
+The canonical files are:
+
+1. `config/stm32-project.jsonc` for shared project metadata and derived project paths
+2. `config/stm32-tools.local.jsonc` for machine-local tool discovery overrides
+3. `config/stm32-runtime-defaults.jsonc` for repository-wide operational defaults used by workflows and MCP servers
+
+Each file has a different ownership boundary:
+
+- `stm32-project.jsonc` is checked into the repository and describes the STM32 project itself
+- `stm32-tools.local.jsonc` is host-specific and may differ between developers, CI, and machines
+- `stm32-runtime-defaults.jsonc` is checked into the repository and centralizes repeated operational defaults that should not be scattered through code
+
+Examples of runtime defaults that belong in the repository-wide defaults file are:
+
+- managed debug session names
+- fallback debug port ranges
+- cleanup and reset timeout caps
+- LLM recovery limits and text truncation limits
+- generated-project root and similar workflow defaults
+
+This split keeps project identity, host discovery, and execution policy independent. It also reduces duplicated literals in server modules while preserving deterministic fallback behavior when a config file is missing.
 
 ## CubeMX-First Development Strategy
 
@@ -289,11 +316,17 @@ The `.ioc` file path is passed inside the script through `config load`. The scri
 
 ### Project Metadata Contract
 
-The orchestration layer must read the CubeMX project inputs from the project-specific JSON configuration and pass them explicitly to the CubeMX agent.
+The orchestration layer must read the CubeMX project inputs from the project-specific JSONC configuration and pass them explicitly to the CubeMX agent.
+
+The current configuration contract is intentionally layered:
+
+1. `stm32-project.jsonc` provides project identity, CubeMX inputs, build defaults, and debug metadata
+2. `stm32-runtime-defaults.jsonc` provides repository-wide operational defaults used when request or project metadata values are absent
+3. `stm32-tools.local.jsonc` provides machine-local executable discovery overrides
 
 The first implementation step must therefore support this exact handoff:
 
-1. orchestrator reads the project JSON
+1. orchestrator reads the project JSONC metadata
 2. orchestrator extracts the IOC file path, project name, project toolchain, and project path
 3. orchestrator calls the CubeMX agent with those resolved values
 4. CubeMX agent writes `script.txt`
@@ -319,17 +352,18 @@ Polling must use an overall timeout budget suitable for long-running generations
 The immediate implementation scope for this revision is:
 
 1. add project metadata fields needed for CubeMX script generation to the project schema and sample config
-2. implement a helper that resolves the CubeMX script payload from project metadata
-3. make the orchestrator pass that payload into the CubeMX MCP server
-4. make the CubeMX MCP server write the script file and invoke CubeMX with `-q <script.txt>`
-5. add polling for `STM32CubeIDE/.project` creation under the configured project path
-6. keep existing build validation after successful polling-based completion detection
+2. keep runtime-only operational defaults in `stm32-runtime-defaults.jsonc` instead of scattering them across tool servers and workflows
+3. implement a helper that resolves the CubeMX script payload from project metadata
+4. make the orchestrator pass that payload into the CubeMX MCP server
+5. make the CubeMX MCP server write the script file and invoke CubeMX with `-q <script.txt>`
+6. add polling for `STM32CubeIDE/.project` creation under the configured project path
+7. keep existing build validation after successful polling-based completion detection
 
 ### Failure Handling Requirements
 
 The revised CubeMX flow must report these failures clearly:
 
-1. required project metadata is missing from the project JSON
+1. required project metadata is missing from the project JSONC metadata
 2. script file creation failed
 3. CubeMX process launch failed
 4. CubeMX returned but the expected `STM32CubeIDE/.project` file did not appear before timeout

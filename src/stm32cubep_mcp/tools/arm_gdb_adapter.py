@@ -183,6 +183,6 @@ def resolve_arm_gdb_path(discovery: dict[str, object]) -> str:
     env_var = str(discovery.get("env_var") or DEFAULT_ARM_GDB_ENV_VAR)
     raise FileNotFoundError(
         "ARM GDB executable was not found. Set "
-        f"{env_var}, add arm-none-eabi-gdb to PATH, or update config/stm32-tools.local.json."
+        f"{env_var}, add arm-none-eabi-gdb to PATH, or update config/stm32-tools.local.jsonc."
         f"{checked_suffix}"
     )

@@ -4,7 +4,7 @@
 
 This workspace now contains one orchestration MCP server and several tool-domain MCP servers.
 
-The intended main entry point is the orchestration server, which reads [config/stm32-tools.local.json](../config/stm32-tools.local.json) and [config/stm32-project.json](../config/stm32-project.json) and then routes the request to the right domain server.
+The intended main entry point is the orchestration server, which reads [config/stm32-tools.local.jsonc](../config/stm32-tools.local.jsonc) and [config/stm32-project.jsonc](../config/stm32-project.jsonc) and then routes the request to the right domain server.
 
 The Build MCP server is now implemented for STM32CubeIDE headless builds.
 

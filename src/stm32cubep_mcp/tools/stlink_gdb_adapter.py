@@ -259,7 +259,7 @@ def resolve_stlink_gdb_server_path(discovery: dict[str, object]) -> str:
     env_var = str(discovery.get("env_var") or DEFAULT_STLINK_GDB_SERVER_ENV_VAR)
     raise FileNotFoundError(
         "ST-LINK GDB server executable was not found. Set "
-        f"{env_var}, add ST-LINK_gdbserver to PATH, or update config/stm32-tools.local.json."
+        f"{env_var}, add ST-LINK_gdbserver to PATH, or update config/stm32-tools.local.jsonc."
         f"{checked_suffix}"
     )
 

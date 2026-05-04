@@ -103,6 +103,10 @@ def workspace_project_metadata_path(project_config: dict[str, object]) -> Path:
     return project_config_service.workspace_project_metadata_path(project_config)
 
 
+def workspace_tools_local_config_path(tools_config: dict[str, object]) -> Path:
+    return project_config_service.workspace_tools_local_config_path(tools_config)
+
+
 def inferred_project_name(contract: dict[str, object]) -> str:
     return project_config_service.inferred_project_name(contract)
 
@@ -126,13 +130,23 @@ def ensure_project_metadata_for_feature_contract(contract: dict[str, object]) ->
     )
 
 
-@mcp.tool(description="Normalize stm32-project.json into the concise JSONC format with real comments and derived-path duplication removed.")
+@mcp.tool(description="Normalize stm32-project.jsonc into the concise JSONC format with real comments and derived-path duplication removed.")
 def stm32_normalize_project_config(write_changes: bool = True) -> dict[str, object]:
     return project_config_service.normalize_project_config(
         write_changes=write_changes,
         load_project_metadata=shared.load_project_metadata,
         compact_project_metadata=shared.compact_project_metadata,
         render_project_metadata_jsonc=shared.render_project_metadata_jsonc,
+        summarize_config_status=programmer_server.summarize_config_status,
+    )
+
+
+@mcp.tool(description="Normalize stm32-tools.local.jsonc into the concise JSONC format with real comments and schema-aligned field guidance.")
+def stm32_normalize_tools_config(write_changes: bool = True) -> dict[str, object]:
+    return project_config_service.normalize_tools_local_config(
+        write_changes=write_changes,
+        load_tools_local_config=shared.load_tools_local_config,
+        render_tools_local_config_jsonc=shared.render_tools_local_config_jsonc,
         summarize_config_status=programmer_server.summarize_config_status,
     )
 
@@ -275,7 +289,7 @@ def stm32_orchestrate_feature_status(plan_file: str) -> dict[str, object]:
     }
 
 
-@mcp.tool(description="High-level orchestration entry point for deterministic CubeMX regeneration using the shared stm32-project.json metadata.")
+@mcp.tool(description="High-level orchestration entry point for deterministic CubeMX regeneration using the shared stm32-project.jsonc metadata.")
 def stm32_orchestrate_cubemx_regeneration(
     validate_build: bool = True,
     timeout_seconds: int = 900,
@@ -316,7 +330,7 @@ async def stm32_orchestrate_build_then_flash(
 
 @mcp.tool(description="High-level orchestration workflow that resets the attached STM32 target and launches a managed ST-LINK GDB server session for runtime diagnosis.")
 async def stm32_orchestrate_debug_session(
-    session_name: str = "default",
+    session_name: str | None = None,
     reset_before_launch: bool = True,
     timeout_seconds: int = 60,
     port_number: int | None = None,
@@ -337,6 +351,7 @@ async def stm32_orchestrate_debug_session(
     apid: int | None = None,
     halt: bool = False,
 ) -> dict[str, object]:
+    session_name = session_name or debug_server.configured_default_debug_session_name()
     return await live_debug_workflow.orchestrate_debug_session(
         session_name=session_name,
         reset_before_launch=reset_before_launch,
@@ -407,7 +422,7 @@ async def stm32_orchestrate_prompt(prompt: str, timeout_seconds: int = 120, mode
     )
 
 
-@mcp.tool(description="High-level orchestration entry point for a project build using the shared stm32-project.json metadata.")
+@mcp.tool(description="High-level orchestration entry point for a project build using the shared stm32-project.jsonc metadata.")
 def stm32_orchestrate_build(timeout_seconds: int = 600) -> dict[str, object]:
     result = build_server.stm32_build_project(timeout_seconds=timeout_seconds)
     return {
@@ -443,7 +458,7 @@ async def stm32_orchestrate_debug_question(
     )
 
 
-@mcp.tool(description="High-level orchestration entry point for flashing the configured default firmware artifact from stm32-project.json.")
+@mcp.tool(description="High-level orchestration entry point for flashing the configured default firmware artifact from stm32-project.jsonc.")
 async def stm32_orchestrate_flash(timeout_seconds: int = 240) -> dict[str, object]:
     file_path = configured_firmware_artifact()
     if not isinstance(file_path, str) or not file_path.strip():
@@ -451,7 +466,7 @@ async def stm32_orchestrate_flash(timeout_seconds: int = 240) -> dict[str, objec
             "server": "orchestrator",
             "workflow": "flash",
             "success": False,
-            "message": "No build.artifact or firmware.default_artifact is configured in stm32-project.json.",
+            "message": "No build.artifact or firmware.default_artifact is configured in stm32-project.jsonc.",
         }
 
     result = await programmer_server.stm32_flash_firmware(file_path=file_path, timeout_seconds=timeout_seconds)

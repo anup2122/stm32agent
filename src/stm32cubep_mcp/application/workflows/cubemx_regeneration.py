@@ -57,7 +57,7 @@ def orchestrate_cubemx_regeneration(
             "workflow": "cubemx_regeneration",
             "success": False,
             "cubemx_request": cubemx_request,
-            "message": "Missing required CubeMX project metadata in stm32-project.json: " + ", ".join(missing_fields),
+            "message": "Missing required CubeMX project metadata in stm32-project.jsonc: " + ", ".join(missing_fields),
         }
 
     result = regenerate_project(

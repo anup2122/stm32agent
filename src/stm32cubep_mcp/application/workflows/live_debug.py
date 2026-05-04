@@ -2,6 +2,33 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable
 
+from ... import shared
+
+
+def _runtime_debug_defaults() -> dict[str, object]:
+    runtime_defaults = shared.load_runtime_defaults().get("data")
+    if not isinstance(runtime_defaults, dict):
+        return {}
+    debug_defaults = runtime_defaults.get("debug")
+    return debug_defaults if isinstance(debug_defaults, dict) else {}
+
+
+def debug_reset_timeout_cap_seconds() -> int:
+    value = _runtime_debug_defaults().get("reset_timeout_cap_seconds")
+    return value if isinstance(value, int) and value > 0 else 60
+
+
+def runtime_validation_session_name() -> str:
+    value = _runtime_debug_defaults().get("runtime_validation_session_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "feature-runtime-validation"
+
+
+def debug_cleanup_timeout_seconds() -> int:
+    value = _runtime_debug_defaults().get("cleanup_timeout_seconds")
+    return value if isinstance(value, int) and value > 0 else 10
+
 
 async def orchestrate_debug_session(
     *,
@@ -30,7 +57,7 @@ async def orchestrate_debug_session(
 ) -> dict[str, object]:
     reset_result: dict[str, object] | None = None
     if reset_before_launch:
-        reset_result = await reset_target(timeout_seconds=min(timeout_seconds, 60))
+        reset_result = await reset_target(timeout_seconds=min(timeout_seconds, debug_reset_timeout_cap_seconds()))
         if not reset_result.get("success"):
             return {
                 "server": "orchestrator",
@@ -99,16 +126,16 @@ async def run_runtime_validation_stage(
         )
 
     runtime_validation_result = await orchestrate_debug_session_fn(
-        session_name="feature-runtime-validation",
+        session_name=runtime_validation_session_name(),
         reset_before_launch=False,
-        timeout_seconds=min(flash_timeout_seconds, 60),
+        timeout_seconds=min(flash_timeout_seconds, debug_reset_timeout_cap_seconds()),
     )
     cleanup_result: dict[str, object] | None = None
     if runtime_validation_result.get("success") and stop_debug_session_fn is not None:
         cleanup_result = stop_debug_session_fn(
-            session_name="feature-runtime-validation",
+            session_name=runtime_validation_session_name(),
             force=False,
-            timeout_seconds=10,
+            timeout_seconds=debug_cleanup_timeout_seconds(),
         )
         cleanup_message = str(cleanup_result.get("message") or "").lower()
         cleanup_ok = bool(cleanup_result.get("success")) or "not running" in cleanup_message

@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from stm32cubep_mcp import shared
 from stm32cubep_mcp.cube_programmer import server
 
 
@@ -39,7 +40,7 @@ class ResolveCliPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             fake_cli = Path(temp_dir) / "STM32_Programmer_CLI.exe"
             fake_cli.write_text("stub", encoding="utf-8")
-            config_path = Path(temp_dir) / "stm32-tools.local.json"
+            config_path = Path(temp_dir) / "stm32-tools.local.jsonc"
             config_path.write_text(
                 json.dumps(
                     {
@@ -82,7 +83,7 @@ class HelperFunctionTests(unittest.TestCase):
 
     def test_load_tools_local_config_reports_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "stm32-tools.local.json"
+            config_path = Path(temp_dir) / "stm32-tools.local.jsonc"
             config_path.write_text("{not-json", encoding="utf-8")
 
             with patch.dict(os.environ, {"STM32_TOOLS_LOCAL_JSON": str(config_path)}, clear=False):
@@ -93,7 +94,7 @@ class HelperFunctionTests(unittest.TestCase):
 
     def test_load_project_metadata_reports_loaded_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            project_path = Path(temp_dir) / "stm32-project.json"
+            project_path = Path(temp_dir) / "stm32-project.jsonc"
             project_path.write_text(
                 json.dumps(
                     {
@@ -113,7 +114,7 @@ class HelperFunctionTests(unittest.TestCase):
 
     def test_load_project_metadata_derives_runtime_paths_from_top_level_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            project_path = Path(temp_dir) / "stm32-project.json"
+            project_path = Path(temp_dir) / "stm32-project.jsonc"
             project_path.write_text(
                 json.dumps(
                     {
@@ -144,7 +145,7 @@ class HelperFunctionTests(unittest.TestCase):
 
         def test_load_project_metadata_accepts_jsonc_comments(self) -> None:
                 with tempfile.TemporaryDirectory() as temp_dir:
-                        project_path = Path(temp_dir) / "stm32-project.json"
+                        project_path = Path(temp_dir) / "stm32-project.jsonc"
                         project_path.write_text(
                                 """{
     // Top-level project identity.
@@ -169,7 +170,7 @@ class HelperFunctionTests(unittest.TestCase):
 
         def test_load_tools_local_config_accepts_jsonc_comments(self) -> None:
                 with tempfile.TemporaryDirectory() as temp_dir:
-                        config_path = Path(temp_dir) / "stm32-tools.local.json"
+                        config_path = Path(temp_dir) / "stm32-tools.local.jsonc"
                         config_path.write_text(
                                 """{
     \"version\": 1,
@@ -191,6 +192,28 @@ class HelperFunctionTests(unittest.TestCase):
 
                 self.assertEqual(result["status"], "loaded")
                 self.assertEqual(result["data"]["tools"]["cube_programmer"]["candidates"]["windows"][0], "C:/tool/STM32_Programmer_CLI.exe")
+
+    def test_render_tools_local_config_jsonc_includes_field_comments(self) -> None:
+        rendered = shared.render_tools_local_config_jsonc(
+            {
+                "version": 1,
+                "tools": {
+                    "cubeide": {
+                        "env_var": "STM32CUBEIDE_CLI_PATH",
+                        "executable_name": "stm32cubeidec.exe",
+                        "candidates": {
+                            "windows": ["C:/ST/STM32CubeIDE/stm32cubeidec.exe"],
+                        },
+                    }
+                },
+            }
+        )
+
+        self.assertIn("// Schema version for stm32-tools.local.jsonc. Options: 1.", rendered)
+        self.assertIn('// Machine-local tool discovery overrides. Supported keys: "cube_programmer", "cubeide", "cubemx", "stlink_gdb_server", "arm_gdb".', rendered)
+        self.assertIn("// STM32CubeIDE headless build CLI discovery settings.", rendered)
+        self.assertIn('// Environment variable checked before config candidates and PATH lookup. Default: "STM32CUBEIDE_CLI_PATH".', rendered)
+        self.assertIn('// Per-platform candidate paths checked before generic PATH fallback. Supported keys: "windows", "linux", "darwin".', rendered)
 
 
 class CommandArgumentBuilderTests(unittest.TestCase):
@@ -473,7 +496,7 @@ class DiscoveryAndCapabilitiesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             fake_cli = Path(temp_dir) / "STM32_Programmer_CLI.exe"
             fake_cli.write_text("stub", encoding="utf-8")
-            config_path = Path(temp_dir) / "stm32-tools.local.json"
+            config_path = Path(temp_dir) / "stm32-tools.local.jsonc"
             config_path.write_text(
                 json.dumps(
                     {

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/stm32-runtime-defaults.schema.json",
+  "title": "STM32 Runtime Defaults",
+  "description": "Shared runtime defaults for workflow, debug, and programmer behavior that are configurable per repository.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uart_core_feature_id": {"type": "string"},
+        "generated_projects_dir": {"type": "string"}
+      }
+    },
+    "programmer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "llm_recovery_max_attempts": {"type": "integer"},
+        "recovery_text_limit": {"type": "integer"},
+        "programmer_version_timeout_cap_seconds": {"type": "integer"},
+        "runtime_check_timeout_cap_seconds": {"type": "integer"}
+      }
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_session_name": {"type": "string"},
+        "runtime_validation_session_name": {"type": "string"},
+        "default_gdb_port": {"type": "integer"},
+        "default_swo_port": {"type": "integer"},
+        "fallback_port_range_start": {"type": "integer"},
+        "fallback_port_range_end": {"type": "integer"},
+        "reset_timeout_cap_seconds": {"type": "integer"},
+        "cleanup_timeout_seconds": {"type": "integer"}
+      }
+    }
+  }
+}

@@ -4,10 +4,30 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from ... import shared
 from .workflow_state import contract_feature_ids
 
-UART_CORE_FEATURE_ID = "core-uart-device-to-pc"
-DEFAULT_GENERATED_PROJECTS_DIR = Path("generated")
+
+def _runtime_project_defaults() -> dict[str, object]:
+    runtime_defaults = shared.load_runtime_defaults().get("data")
+    if not isinstance(runtime_defaults, dict):
+        return {}
+    project_defaults = runtime_defaults.get("project")
+    return project_defaults if isinstance(project_defaults, dict) else {}
+
+
+def configured_uart_core_feature_id() -> str:
+    value = _runtime_project_defaults().get("uart_core_feature_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "core-uart-device-to-pc"
+
+
+def configured_generated_projects_dir() -> Path:
+    value = _runtime_project_defaults().get("generated_projects_dir")
+    if isinstance(value, str) and value.strip():
+        return Path(value.strip())
+    return Path("generated")
 
 
 def normalize_cubemx_toolchain(value: object) -> str | None:
@@ -24,7 +44,15 @@ def workspace_project_metadata_path(project_config: dict[str, object], *, cwd: P
     if isinstance(configured_path, str) and configured_path.strip():
         return Path(configured_path).resolve()
     root = cwd or Path.cwd()
-    return (root / "config" / "stm32-project.json").resolve()
+    return (root / "config" / "stm32-project.jsonc").resolve()
+
+
+def workspace_tools_local_config_path(tools_config: dict[str, object], *, cwd: Path | None = None) -> Path:
+    configured_path = tools_config.get("path")
+    if isinstance(configured_path, str) and configured_path.strip():
+        return Path(configured_path).resolve()
+    root = cwd or Path.cwd()
+    return (root / "config" / "stm32-tools.local.jsonc").resolve()
 
 
 def inferred_project_name(contract: dict[str, object]) -> str:
@@ -32,7 +60,7 @@ def inferred_project_name(contract: dict[str, object]) -> str:
     board_id = str(target.get("board_id") or "stm32-project").strip() or "stm32-project"
     feature_ids = contract_feature_ids(contract)
 
-    if UART_CORE_FEATURE_ID in feature_ids:
+    if configured_uart_core_feature_id() in feature_ids:
         return f"{board_id}-UART2-printf"
     if "core-rtc-alarm" in feature_ids:
         return f"{board_id}-RTC-Alarm"
@@ -56,7 +84,7 @@ def derived_project_paths(
     generated_projects_dir: Path | None = None,
 ) -> dict[str, str]:
     root = cwd or Path.cwd()
-    generated_root = generated_projects_dir or DEFAULT_GENERATED_PROJECTS_DIR
+    generated_root = generated_projects_dir or configured_generated_projects_dir()
     project_root = (root / generated_root / project_name).resolve()
     cubeide_root = (project_root / "STM32CubeIDE").resolve()
     debug_artifact = (cubeide_root / "Debug" / f"{project_name}.elf").resolve()
@@ -117,7 +145,7 @@ def merge_project_metadata_with_prompt_fallback(
 
     merged_data["version"] = int(merged_data.get("version") or 1)
     fill(merged_data, "project_name", project_name, "project_name")
-    fill(merged_data, "generated_root", (generated_projects_dir or DEFAULT_GENERATED_PROJECTS_DIR).as_posix(), "generated_root")
+    fill(merged_data, "generated_root", (generated_projects_dir or configured_generated_projects_dir()).as_posix(), "generated_root")
     fill(merged_data, "project_toolchain", toolchain, "project_toolchain")
     fill(merged_data, "build_system", build_system, "build_system")
     fill(merged_data, "default_configuration", default_configuration, "default_configuration")
@@ -205,7 +233,7 @@ def normalize_project_config(
             "success": False,
             "metadata_path": str(metadata_path),
             "project_config": summarize_config_status(project_config),
-            "message": "No stm32-project.json payload is available to normalize.",
+            "message": "No stm32-project.jsonc payload is available to normalize.",
         }
 
     compacted = compact_project_metadata(project_data)
@@ -228,7 +256,50 @@ def normalize_project_config(
         "changed": changed,
         "wrote_file": write_changes,
         "normalized_data": compacted,
-        "message": "Normalized stm32-project.json into concise JSONC form." if changed else "stm32-project.json was already in normalized JSONC form.",
+        "message": "Normalized stm32-project.jsonc into concise JSONC form." if changed else "stm32-project.jsonc was already in normalized JSONC form.",
+    }
+
+
+def normalize_tools_local_config(
+    *,
+    write_changes: bool,
+    load_tools_local_config: Callable[[], dict[str, object]],
+    render_tools_local_config_jsonc: Callable[[dict[str, object]], str],
+    summarize_config_status: Callable[[dict[str, object]], dict[str, object]],
+    cwd: Path | None = None,
+) -> dict[str, object]:
+    tools_config = load_tools_local_config()
+    config_path = workspace_tools_local_config_path(tools_config, cwd=cwd)
+    tools_data = tools_config.get("data")
+    if not isinstance(tools_data, dict):
+        return {
+            "server": "orchestrator",
+            "workflow": "normalize_tools_local_config",
+            "success": False,
+            "metadata_path": str(config_path),
+            "tools_config": summarize_config_status(tools_config),
+            "message": "No stm32-tools.local.jsonc payload is available to normalize.",
+        }
+
+    rendered = render_tools_local_config_jsonc(tools_data)
+    if config_path.is_file():
+        changed = config_path.read_text(encoding="utf-8") != rendered
+    else:
+        changed = True
+
+    if write_changes:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(rendered, encoding="utf-8")
+
+    return {
+        "server": "orchestrator",
+        "workflow": "normalize_tools_local_config",
+        "success": True,
+        "metadata_path": str(config_path),
+        "changed": changed,
+        "wrote_file": write_changes,
+        "normalized_data": tools_data,
+        "message": "Normalized stm32-tools.local.jsonc into concise JSONC form." if changed else "stm32-tools.local.jsonc was already in normalized JSONC form.",
     }
 
 

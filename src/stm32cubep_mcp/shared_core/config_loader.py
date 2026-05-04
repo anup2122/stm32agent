@@ -19,12 +19,18 @@ from .constants import (
     PROJECT_METADATA_ENV_VAR,
     PROJECT_METADATA_PATHS,
     PROJECT_SCHEMA_PATH,
+    RUNTIME_DEFAULTS_ENV_VAR,
+    RUNTIME_DEFAULTS_PATHS,
+    RUNTIME_DEFAULTS_SCHEMA_PATH,
+    SUPPORTED_CONFIGURED_TOOLS,
+    SUPPORTED_BUILD_SYSTEMS,
+    SUPPORTED_HOST_PLATFORMS,
     TOOLS_SCHEMA_PATH,
 )
 from .host import default_cli_executable_name, host_platform_name
 from .jsonc import cloned_json_object, parse_jsonc_document
 from .paths import config_search_paths, resolve_candidate_path
-from .schema_validation import validate_project_metadata_schema, validate_tools_local_schema
+from .schema_validation import validate_project_metadata_schema, validate_runtime_defaults_schema, validate_tools_local_schema
 
 
 def normalize_project_toolchain(value: object) -> str:
@@ -124,7 +130,186 @@ def _ordered_mapping_items(mapping: dict[str, object], preferred_order: Sequence
     return items
 
 
-def _render_jsonc_value(value: object, indent_level: int = 0, preferred_order: Sequence[str] = ()) -> list[str]:
+PROJECT_METADATA_FIELD_DOCS: dict[tuple[str, ...], dict[str, object]] = {
+    ("version",): {
+        "description": "Schema version for stm32-project.jsonc.",
+        "options": (1,),
+    },
+    ("project_name",): {
+        "description": "Actual STM32 project name. Keep this single source of truth.",
+    },
+    ("generated_root",): {
+        "description": "Generated project root folder relative to the workspace.",
+        "default": DEFAULT_GENERATED_ROOT,
+    },
+    ("project_toolchain",): {
+        "description": "Default CubeMX toolchain when no section override is needed.",
+        "options": (DEFAULT_PROJECT_TOOLCHAIN,),
+        "default": DEFAULT_PROJECT_TOOLCHAIN,
+    },
+    ("build_system",): {
+        "description": "Default build backend used by the build server.",
+        "options": SUPPORTED_BUILD_SYSTEMS,
+        "default": DEFAULT_BUILD_SYSTEM,
+    },
+    ("default_configuration",): {
+        "description": "Default build configuration used for ELF and build output paths.",
+        "default": DEFAULT_BUILD_CONFIGURATION,
+    },
+    ("board",): {
+        "description": "Board identity and connection defaults supplied by the user.",
+    },
+    ("board", "name"): {
+        "description": "Board identifier used by higher-level workflows.",
+    },
+    ("board", "mcu"): {
+        "description": "MCU part number used for SVD and board-aware tooling.",
+    },
+    ("board", "interface"): {
+        "description": "Primary debug interface used by probe tooling.",
+        "options": ("SWD", "JTAG"),
+    },
+    ("board", "connect_defaults"): {
+        "description": "Default ST-LINK connection settings applied by debug and flash flows.",
+    },
+    ("board", "connect_defaults", "port"): {
+        "description": "Default probe port.",
+        "options": ("SWD", "JTAG"),
+    },
+    ("board", "connect_defaults", "frequency_khz"): {
+        "description": "Default probe speed in kHz.",
+    },
+    ("board", "connect_defaults", "mode"): {
+        "description": "Default connection mode passed to STM32 tools.",
+        "options": ("NORMAL", "HOTPLUG", "UR"),
+    },
+    ("board", "connect_defaults", "reset"): {
+        "description": "Default reset strategy passed to STM32 tools.",
+        "options": ("SWrst", "HWrst", "Crst", "None"),
+    },
+    ("firmware",): {
+        "description": "Optional firmware overrides. Derived IOC and ELF paths are omitted unless you want to override them.",
+    },
+    ("firmware", "format"): {
+        "description": "Expected firmware artifact format.",
+        "options": ("elf", "hex", "bin"),
+    },
+    ("firmware", "flash_address"): {
+        "description": "Optional flash address override used by programming flows.",
+    },
+    ("firmware", "ioc_path"): {
+        "description": "Relative path to the authoritative CubeMX IOC file.",
+    },
+    ("firmware", "default_artifact"): {
+        "description": "Default firmware artifact path used when build.artifact is absent.",
+    },
+    ("cubemx",): {
+        "description": "Optional CubeMX overrides. Derived project_name, project_path, and script_path are omitted unless overridden.",
+    },
+    ("cubemx", "log_path"): {
+        "description": "CubeMX log file path used for host diagnostics.",
+    },
+    ("cubemx", "project_name"): {
+        "description": "CubeMX project name override. Usually matches the top-level project_name.",
+    },
+    ("cubemx", "project_toolchain"): {
+        "description": "CubeMX toolchain override for generated project files.",
+        "options": (DEFAULT_PROJECT_TOOLCHAIN,),
+        "default": DEFAULT_PROJECT_TOOLCHAIN,
+    },
+    ("cubemx", "project_path"): {
+        "description": "Absolute path to the generated CubeMX project root.",
+    },
+    ("cubemx", "script_path"): {
+        "description": "Path to the generated CubeMX automation script.",
+    },
+    ("build",): {
+        "description": "Optional build overrides. Derived workspace, project_path, project_name, artifact, and configurations are omitted unless overridden.",
+    },
+    ("build", "import_project"): {
+        "description": "Whether the CubeIDE project should be imported into the workspace before building.",
+        "options": (True, False),
+    },
+    ("build", "default_clean"): {
+        "description": "Whether builds should clean before compile when no explicit clean flag is passed.",
+        "options": (True, False),
+    },
+    ("build", "command"): {
+        "description": "CLI command tokens used to invoke the configured build backend.",
+    },
+    ("build", "cwd"): {
+        "description": "Optional working directory override for the build workspace.",
+    },
+    ("build", "system"): {
+        "description": "Build backend override for the build section.",
+        "options": SUPPORTED_BUILD_SYSTEMS,
+        "default": DEFAULT_BUILD_SYSTEM,
+    },
+    ("build", "workspace"): {
+        "description": "Workspace directory used by the build backend.",
+    },
+    ("build", "project_path"): {
+        "description": "Absolute path to the backend-specific build project folder.",
+    },
+    ("build", "project_name"): {
+        "description": "Build project name. Usually matches the top-level project_name.",
+    },
+    ("build", "default_configuration"): {
+        "description": "Default build configuration for this build section.",
+        "default": DEFAULT_BUILD_CONFIGURATION,
+    },
+    ("build", "configurations"): {
+        "description": "Available build configurations exposed by the backend.",
+    },
+    ("build", "artifact"): {
+        "description": "Primary artifact path produced by the build backend.",
+    },
+    ("debug",): {
+        "description": "Optional debug overrides. Derived elf_path is omitted unless overridden.",
+    },
+    ("debug", "server"): {
+        "description": "Debug server implementation used by the debug MCP.",
+        "options": ("stlink-gdb-server",),
+    },
+    ("debug", "gdb"): {
+        "description": "Optional GDB executable override.",
+    },
+    ("debug", "gdb_port"): {
+        "description": "TCP port exposed by the debug server for GDB.",
+    },
+    ("debug", "swo_port"): {
+        "description": "TCP port exposed by the debug server for SWO/trace output.",
+    },
+    ("debug", "elf_path"): {
+        "description": "ELF path used for debug sessions.",
+    },
+}
+
+
+def _jsonc_field_comment(path: tuple[str, ...]) -> str | None:
+    metadata = PROJECT_METADATA_FIELD_DOCS.get(path)
+    if metadata is None:
+        return None
+
+    comment_parts = [str(metadata["description"]).strip()]
+
+    options = metadata.get("options")
+    if isinstance(options, Sequence) and not isinstance(options, (str, bytes)) and options:
+        rendered_options = ", ".join(json.dumps(option) for option in options)
+        comment_parts.append(f"Options: {rendered_options}.")
+
+    if "default" in metadata:
+        comment_parts.append(f"Default: {json.dumps(metadata['default'])}.")
+
+    return " ".join(comment_parts)
+
+
+def _render_jsonc_value(
+    value: object,
+    indent_level: int = 0,
+    preferred_order: Sequence[str] = (),
+    field_path: tuple[str, ...] = (),
+) -> list[str]:
     indent = "  " * indent_level
     child_indent = "  " * (indent_level + 1)
 
@@ -134,7 +319,10 @@ def _render_jsonc_value(value: object, indent_level: int = 0, preferred_order: S
         lines = ["{"]
         items = _ordered_mapping_items(value, preferred_order)
         for index, (key, nested_value) in enumerate(items):
-            nested_lines = _render_jsonc_value(nested_value, indent_level + 1)
+            comment = _jsonc_field_comment((*field_path, key))
+            if comment:
+                lines.append(f"{child_indent}// {comment}")
+            nested_lines = _render_jsonc_value(nested_value, indent_level + 1, field_path=(*field_path, key))
             suffix = "," if index < len(items) - 1 else ""
             if len(nested_lines) == 1:
                 lines.append(f"{child_indent}{json.dumps(key)}: {nested_lines[0]}{suffix}")
@@ -150,7 +338,7 @@ def _render_jsonc_value(value: object, indent_level: int = 0, preferred_order: S
             return ["[]"]
         lines = ["["]
         for index, item in enumerate(value):
-            nested_lines = _render_jsonc_value(item, indent_level + 1)
+            nested_lines = _render_jsonc_value(item, indent_level + 1, field_path=field_path)
             suffix = "," if index < len(value) - 1 else ""
             if len(nested_lines) == 1:
                 lines.append(f"{child_indent}{nested_lines[0]}{suffix}")
@@ -167,19 +355,6 @@ def _render_jsonc_value(value: object, indent_level: int = 0, preferred_order: S
 def render_project_metadata_jsonc(payload: object) -> str:
     compacted = compact_project_metadata(payload)
     lines = ["{"]
-
-    top_level_comments = {
-        "project_name": "Actual STM32 project name. Keep this single source of truth.",
-        "generated_root": "Generated project root folder relative to the workspace.",
-        "project_toolchain": "Default CubeMX toolchain when no section override is needed.",
-        "build_system": "Default build backend used by the build server.",
-        "default_configuration": "Default build configuration used for ELF and build output paths.",
-        "board": "Board identity and connection defaults supplied by the user.",
-        "firmware": "Optional firmware overrides. Derived IOC and ELF paths are omitted unless you want to override them.",
-        "cubemx": "Optional CubeMX overrides. Derived project_name, project_path, and script_path are omitted unless overridden.",
-        "build": "Optional build overrides. Derived workspace, project_path, project_name, artifact, and configurations are omitted unless overridden.",
-        "debug": "Optional debug overrides. Derived elf_path is omitted unless overridden.",
-    }
     top_level_order = (
         "version",
         "project_name",
@@ -215,11 +390,11 @@ def render_project_metadata_jsonc(payload: object) -> str:
 
     items = _ordered_mapping_items(compacted, top_level_order)
     for index, (key, value) in enumerate(items):
-        comment = top_level_comments.get(key)
+        comment = _jsonc_field_comment((key,))
         if comment:
             lines.append(f"  // {comment}")
         preferred_order = section_orders.get(key, ()) if isinstance(value, dict) else ()
-        rendered = _render_jsonc_value(value, 1, preferred_order)
+        rendered = _render_jsonc_value(value, 1, preferred_order, (key,))
         suffix = "," if index < len(items) - 1 else ""
         if len(rendered) == 1:
             lines.append(f"  {json.dumps(key)}: {rendered[0]}{suffix}")
@@ -227,6 +402,131 @@ def render_project_metadata_jsonc(payload: object) -> str:
             lines.append(f"  {json.dumps(key)}: {rendered[0]}")
             lines.extend(rendered[1:-1])
             lines.append(f"{rendered[-1]}{suffix}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+TOOLS_LOCAL_TOOL_DOCS: dict[str, dict[str, object]] = {
+    "cube_programmer": {
+        "description": "STM32CubeProgrammer CLI discovery settings used for flash, memory, and core-control operations.",
+        "env_var": DEFAULT_CLI_ENV_VAR,
+    },
+    "cubeide": {
+        "description": "STM32CubeIDE headless build CLI discovery settings.",
+        "env_var": "STM32CUBEIDE_CLI_PATH",
+    },
+    "cubemx": {
+        "description": "STM32CubeMX executable or JAR discovery settings used for IOC parsing and regeneration.",
+        "env_var": "STM32CUBEMX_PATH",
+    },
+    "stlink_gdb_server": {
+        "description": "ST-LINK GDB server discovery settings used by debug workflows.",
+        "env_var": "STM32_STLINK_GDB_SERVER_PATH",
+    },
+    "arm_gdb": {
+        "description": "arm-none-eabi-gdb discovery settings used by debug workflows.",
+        "env_var": "STM32_ARM_GDB_PATH",
+    },
+}
+
+
+def _tools_local_comment(path: tuple[str, ...]) -> str | None:
+    if path == ("version",):
+        return "Schema version for stm32-tools.local.jsonc. Options: 1."
+    if path == ("tools",):
+        supported = ", ".join(json.dumps(tool_name) for tool_name in SUPPORTED_CONFIGURED_TOOLS)
+        return f"Machine-local tool discovery overrides. Supported keys: {supported}."
+
+    if len(path) >= 2 and path[0] == "tools":
+        tool_name = path[1]
+        tool_doc = TOOLS_LOCAL_TOOL_DOCS.get(tool_name)
+        if tool_doc is None:
+            return None
+        if len(path) == 2:
+            return str(tool_doc["description"])
+        if path[2] == "env_var":
+            return (
+                "Environment variable checked before config candidates and PATH lookup. "
+                f"Default: {json.dumps(tool_doc['env_var'])}."
+            )
+        if path[2] == "executable_name":
+            return "Executable or launcher name used for PATH lookup when no explicit path candidate resolves."
+        if path[2] == "candidates":
+            platforms = ", ".join(json.dumps(platform_name) for platform_name in SUPPORTED_HOST_PLATFORMS)
+            return f"Per-platform candidate paths checked before generic PATH fallback. Supported keys: {platforms}."
+        if path[2] in SUPPORTED_HOST_PLATFORMS:
+            return f"Ordered candidate paths checked on {path[2]} hosts."
+
+    return None
+
+
+def render_tools_local_config_jsonc(payload: object) -> str:
+    data = cloned_json_object(payload)
+    tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
+    lines = ["{"]
+
+    top_level_items = _ordered_mapping_items(data, ("version", "tools"))
+    for index, (key, value) in enumerate(top_level_items):
+        comment = _tools_local_comment((key,))
+        if comment:
+            lines.append(f"  // {comment}")
+        suffix = "," if index < len(top_level_items) - 1 else ""
+
+        if key != "tools" or not isinstance(value, dict):
+            rendered = _render_jsonc_value(value, 1, field_path=(key,))
+            if len(rendered) == 1:
+                lines.append(f"  {json.dumps(key)}: {rendered[0]}{suffix}")
+            else:
+                lines.append(f"  {json.dumps(key)}: {rendered[0]}")
+                lines.extend(rendered[1:-1])
+                lines.append(f"{rendered[-1]}{suffix}")
+            continue
+
+        lines.append("  \"tools\": {")
+        tool_items = _ordered_mapping_items(tools, SUPPORTED_CONFIGURED_TOOLS)
+        for tool_index, (tool_name, tool_value) in enumerate(tool_items):
+            tool_suffix = "," if tool_index < len(tool_items) - 1 else ""
+            tool_comment = _tools_local_comment(("tools", tool_name))
+            if tool_comment:
+                lines.append(f"    // {tool_comment}")
+
+            lines.append(f"    {json.dumps(tool_name)}: {{")
+            tool_mapping = tool_value if isinstance(tool_value, dict) else {}
+            tool_fields = _ordered_mapping_items(tool_mapping, ("env_var", "executable_name", "candidates"))
+            for field_index, (field_name, field_value) in enumerate(tool_fields):
+                field_suffix = "," if field_index < len(tool_fields) - 1 else ""
+                field_comment = _tools_local_comment(("tools", tool_name, field_name))
+                if field_comment:
+                    lines.append(f"      // {field_comment}")
+
+                if field_name == "candidates" and isinstance(field_value, dict):
+                    lines.append("      \"candidates\": {")
+                    candidate_items = _ordered_mapping_items(field_value, SUPPORTED_HOST_PLATFORMS)
+                    for candidate_index, (platform_name, platform_values) in enumerate(candidate_items):
+                        candidate_suffix = "," if candidate_index < len(candidate_items) - 1 else ""
+                        candidate_comment = _tools_local_comment(("tools", tool_name, platform_name))
+                        if candidate_comment:
+                            lines.append(f"        // {candidate_comment}")
+                        rendered_platform = _render_jsonc_value(platform_values, 4, field_path=("tools", tool_name, platform_name))
+                        if len(rendered_platform) == 1:
+                            lines.append(f"        {json.dumps(platform_name)}: {rendered_platform[0]}{candidate_suffix}")
+                        else:
+                            lines.append(f"        {json.dumps(platform_name)}: {rendered_platform[0]}")
+                            lines.extend(rendered_platform[1:-1])
+                            lines.append(f"{rendered_platform[-1]}{candidate_suffix}")
+                    lines.append(f"      }}{field_suffix}")
+                    continue
+
+                rendered_field = _render_jsonc_value(field_value, 3, field_path=("tools", tool_name, field_name))
+                if len(rendered_field) == 1:
+                    lines.append(f"      {json.dumps(field_name)}: {rendered_field[0]}{field_suffix}")
+                else:
+                    lines.append(f"      {json.dumps(field_name)}: {rendered_field[0]}")
+                    lines.extend(rendered_field[1:-1])
+                    lines.append(f"{rendered_field[-1]}{field_suffix}")
+            lines.append(f"    }}{tool_suffix}")
+        lines.append(f"  }}{suffix}")
+
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -339,6 +639,15 @@ def load_tools_local_config() -> dict[str, object]:
         relative_paths=LOCAL_TOOLS_CONFIG_PATHS,
         schema_path=TOOLS_SCHEMA_PATH,
         validator=validate_tools_local_schema,
+    )
+
+
+def load_runtime_defaults() -> dict[str, object]:
+    return load_optional_json_config(
+        env_var=RUNTIME_DEFAULTS_ENV_VAR,
+        relative_paths=RUNTIME_DEFAULTS_PATHS,
+        schema_path=RUNTIME_DEFAULTS_SCHEMA_PATH,
+        validator=validate_runtime_defaults_schema,
     )
 
 

@@ -100,6 +100,40 @@ MSI_RANGE_FREQUENCIES_HZ = {
 }
 
 
+def _runtime_debug_defaults() -> dict[str, object]:
+    runtime_defaults = shared.load_runtime_defaults().get("data")
+    if not isinstance(runtime_defaults, dict):
+        return {}
+    debug_defaults = runtime_defaults.get("debug")
+    return debug_defaults if isinstance(debug_defaults, dict) else {}
+
+
+def configured_default_debug_session_name() -> str:
+    value = _runtime_debug_defaults().get("default_session_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "default"
+
+
+def debug_fallback_port_range() -> range:
+    defaults = _runtime_debug_defaults()
+    start = defaults.get("fallback_port_range_start")
+    end = defaults.get("fallback_port_range_end")
+    start_value = start if isinstance(start, int) else 55001
+    end_value = end if isinstance(end, int) else 55100
+    if end_value < start_value:
+        end_value = start_value
+    return range(start_value, end_value + 1)
+
+
+def debug_cleanup_timeout_seconds() -> int:
+    value = _runtime_debug_defaults().get("cleanup_timeout_cap_seconds")
+    if isinstance(value, int) and value > 0:
+        return value
+    value = _runtime_debug_defaults().get("cleanup_timeout_seconds")
+    return value if isinstance(value, int) and value > 0 else 10
+
+
 @dataclass
 class DebugSession:
     session_name: str
@@ -202,7 +236,7 @@ def resolve_svd_path() -> str:
 
     mcu_name = configured_mcu_name()
     if not mcu_name:
-        raise FileNotFoundError("No board.mcu value is configured in stm32-project.json, so an SVD file could not be resolved automatically.")
+        raise FileNotFoundError("No board.mcu value is configured in stm32-project.jsonc, so an SVD file could not be resolved automatically.")
 
     candidate_names = candidate_svd_names(mcu_name)
     checked_paths: list[str] = []
@@ -1043,10 +1077,11 @@ def run_gdb_batch(*, session: DebugSession, commands: list[str], timeout_seconds
 
 @mcp.tool(description="Read live UART or USART configuration directly from the attached STM32 target through a managed debug session and estimate the active baud rate from peripheral registers.")
 def stm32_debug_uart_configuration(
-    session_name: str = "default",
+    session_name: str | None = None,
     peripheral: str = "USART1",
     timeout_seconds: int = 20,
 ) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     normalized_peripheral = normalize_uart_peripheral_name(peripheral)
     register_result = stm32_debug_inspect_peripheral(
         session_name=session_name,
@@ -1148,13 +1183,19 @@ def stm32_debug_uart_configuration(
 def default_debug_port() -> int:
     debug_metadata = load_debug_metadata()
     port_number = debug_metadata.get("gdb_port")
-    return int(port_number) if isinstance(port_number, int) else 55001
+    if isinstance(port_number, int):
+        return int(port_number)
+    value = _runtime_debug_defaults().get("default_gdb_port")
+    return value if isinstance(value, int) else 55001
 
 
 def default_swo_port() -> int | None:
     debug_metadata = load_debug_metadata()
     swo_port = debug_metadata.get("swo_port")
-    return int(swo_port) if isinstance(swo_port, int) else 55002
+    if isinstance(swo_port, int):
+        return int(swo_port)
+    value = _runtime_debug_defaults().get("default_swo_port")
+    return value if isinstance(value, int) else 55002
 
 
 def resolve_swo_launch_port(swo_port: int | None, *, enable_swo: bool) -> int | None:
@@ -1223,7 +1264,7 @@ def select_launch_ports(preferred_port: int, preferred_swo_port: int | None) -> 
     if can_bind_tcp_port(preferred_port) and (preferred_swo_port is None or preferred_swo_port == 0 or can_bind_tcp_port(preferred_swo_port)):
         return preferred_port, preferred_swo_port, False
 
-    for candidate_port in range(55001, 55101):
+    for candidate_port in debug_fallback_port_range():
         if not can_bind_tcp_port(candidate_port):
             continue
 
@@ -1395,7 +1436,7 @@ def collect_debug_capabilities() -> dict[str, object]:
     }
 
 
-@mcp.tool(description="Report the current ST-LINK GDB server capabilities and resolved debug metadata from stm32-project.json.")
+@mcp.tool(description="Report the current ST-LINK GDB server capabilities and resolved debug metadata from stm32-project.jsonc.")
 def stm32_debug_capabilities() -> dict[str, object]:
     return collect_debug_capabilities()
 
@@ -1486,7 +1527,7 @@ def stm32_debug_list_debuggers(timeout_seconds: int = 10) -> dict[str, object]:
 
 @mcp.tool(description="Launch the STM32CubeIDE ST-LINK GDB server as a managed background session and return the listening port plus log paths.")
 def stm32_debug_launch(
-    session_name: str = "default",
+    session_name: str | None = None,
     port_number: int | None = None,
     swo_port: int | None = None,
     enable_swo: bool = True,
@@ -1506,6 +1547,7 @@ def stm32_debug_launch(
     halt: bool = False,
     timeout_seconds: int = 15,
 ) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     debug_metadata = load_debug_metadata()
     existing_session = ACTIVE_DEBUG_SESSIONS.get(session_name)
     if existing_session is not None and existing_session.process.poll() is None:
@@ -1670,7 +1712,8 @@ def stm32_debug_launch(
 
 
 @mcp.tool(description="Report the current lifecycle state of a managed ST-LINK GDB server session.")
-def stm32_debug_status(session_name: str = "default") -> dict[str, object]:
+def stm32_debug_status(session_name: str | None = None) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     session = ACTIVE_DEBUG_SESSIONS.get(session_name)
     if session is None:
         return {
@@ -1705,10 +1748,11 @@ def stm32_debug_sessions() -> dict[str, object]:
 
 @mcp.tool(description="Run one-shot ARM GDB commands against a managed ST-LINK GDB server session and return the batch transcript.")
 def stm32_debug_run_gdb_commands(
-    session_name: str = "default",
+    session_name: str | None = None,
     commands: list[str] | None = None,
     timeout_seconds: int = 20,
 ) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     session = ACTIVE_DEBUG_SESSIONS.get(session_name)
     if session is None:
         return {
@@ -1725,11 +1769,12 @@ def stm32_debug_run_gdb_commands(
 
 @mcp.tool(description="Inspect a live peripheral or a specific register directly on the attached STM32 target using SVD metadata plus a managed debug session.")
 def stm32_debug_inspect_peripheral(
-    session_name: str = "default",
+    session_name: str | None = None,
     peripheral: str = "USART1",
     register: str | None = None,
     timeout_seconds: int = 20,
 ) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     session = ACTIVE_DEBUG_SESSIONS.get(session_name)
     if session is None:
         return {
@@ -1764,9 +1809,10 @@ def stm32_debug_inspect_peripheral(
 @mcp.tool(description="Answer a natural-language peripheral or register question by inspecting live target state through the managed debug session.")
 def stm32_debug_answer_question(
     question: str,
-    session_name: str = "default",
+    session_name: str | None = None,
     timeout_seconds: int = 20,
 ) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     lowered = question.strip().lower()
     peripheral_match = re.search(r"\b(usart\d+|uart\d+|spi\d+|i2c\d+|tim\d+|adc\d+|dac\d+|gpio[a-k]|rcc)\b", lowered)
     peripheral = peripheral_match.group(1).upper() if peripheral_match else None
@@ -1826,7 +1872,9 @@ def stm32_debug_answer_question(
 
 
 @mcp.tool(description="Stop a managed ST-LINK GDB server session and return its final logs and exit code.")
-def stm32_debug_stop(session_name: str = "default", force: bool = False, timeout_seconds: int = 10) -> dict[str, object]:
+def stm32_debug_stop(session_name: str | None = None, force: bool = False, timeout_seconds: int | None = None) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
+    timeout_seconds = timeout_seconds or debug_cleanup_timeout_seconds()
     session = ACTIVE_DEBUG_SESSIONS.get(session_name)
     if session is None:
         return {
@@ -1866,10 +1914,11 @@ def stm32_debug_stop(session_name: str = "default", force: bool = False, timeout
 @mcp.tool(description="Capture a structured runtime snapshot through an ARM GDB client attached to a managed ST-LINK GDB server session.")
 def stm32_debug_snapshot(
     snapshot_name: str = "current",
-    session_name: str = "default",
+    session_name: str | None = None,
     stack_words: int = 16,
     timeout_seconds: int = 20,
 ) -> dict[str, object]:
+    session_name = session_name or configured_default_debug_session_name()
     session = ACTIVE_DEBUG_SESSIONS.get(session_name)
     if session is None:
         return {

@@ -1,0 +1,69 @@
+{
+  // Schema version for stm32-project.jsonc. Options: 1.
+  "version": 1,
+  // Actual STM32 project name. Keep this single source of truth.
+  "project_name": "NUCLEO-L476RG-generated",
+  // Generated project root folder relative to the workspace. Default: "generated".
+  "generated_root": "generated",
+  // Default CubeMX toolchain when no section override is needed. Options: "STM32CubeIDE". Default: "STM32CubeIDE".
+  "project_toolchain": "STM32CubeIDE",
+  // Default build backend used by the build server. Options: "cubeide", "cmake", "make". Default: "cubeide".
+  "build_system": "cubeide",
+  // Default build configuration used for ELF and build output paths. Default: "Debug".
+  "default_configuration": "Debug",
+  // Board identity and connection defaults supplied by the user.
+  "board": {
+    // Board identifier used by higher-level workflows.
+    "name": "NUCLEO-L476RG",
+    // MCU part number used for SVD and board-aware tooling.
+    "mcu": "STM32L476RG",
+    // Primary debug interface used by probe tooling. Options: "SWD", "JTAG".
+    "interface": "SWD",
+    // Default ST-LINK connection settings applied by debug and flash flows.
+    "connect_defaults": {
+      // Default probe port. Options: "SWD", "JTAG".
+      "port": "SWD",
+      // Default probe speed in kHz.
+      "frequency_khz": 4000,
+      // Default connection mode passed to STM32 tools. Options: "NORMAL", "HOTPLUG", "UR".
+      "mode": "NORMAL",
+      // Default reset strategy passed to STM32 tools. Options: "SWrst", "HWrst", "Crst", "None".
+      "reset": "SWrst"
+    }
+  },
+  // Optional firmware overrides. Derived IOC and ELF paths are omitted unless you want to override them.
+  "firmware": {
+    // Expected firmware artifact format. Options: "elf", "hex", "bin".
+    "format": "elf"
+  },
+  // Optional CubeMX overrides. Derived project_name, project_path, and script_path are omitted unless overridden.
+  "cubemx": {
+    // CubeMX log file path used for host diagnostics.
+    "log_path": "C:/Users/anupd/.stm32cubemx/STM32CubeMX.log"
+  },
+  // Optional build overrides. Derived workspace, project_path, project_name, artifact, and configurations are omitted unless overridden.
+  "build": {
+    // Whether the CubeIDE project should be imported into the workspace before building. Options: true, false.
+    "import_project": true,
+    // Whether builds should clean before compile when no explicit clean flag is passed. Options: true, false.
+    "default_clean": true,
+    // CLI command tokens used to invoke the configured build backend.
+    "command": [
+      "stm32cubeidec",
+      "--launcher.suppressErrors",
+      "-nosplash",
+      "-consolelog",
+      "-application",
+      "org.eclipse.cdt.managedbuilder.core.headlessbuild"
+    ]
+  },
+  // Optional debug overrides. Derived elf_path is omitted unless overridden.
+  "debug": {
+    // Debug server implementation used by the debug MCP. Options: "stlink-gdb-server".
+    "server": "stlink-gdb-server",
+    // TCP port exposed by the debug server for GDB.
+    "gdb_port": 55001,
+    // TCP port exposed by the debug server for SWO/trace output.
+    "swo_port": 55002
+  }
+}

@@ -2,31 +2,39 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.local/stm32-tools.local.schema.json",
   "title": "STM32 Agent Toolchain Local Host Tools",
+  "description": "Machine-local host tool discovery settings for STM32CubeProgrammer, CubeIDE, CubeMX, ST-LINK GDB server, and arm-none-eabi-gdb.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "tools"],
   "properties": {
     "version": {
+      "description": "Schema version for stm32-tools.local.jsonc.",
       "type": "integer",
       "const": 1
     },
     "tools": {
+      "description": "Machine-local tool discovery overrides keyed by supported tool name.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "cube_programmer": {
+          "description": "STM32CubeProgrammer CLI discovery settings.",
           "$ref": "#/$defs/toolDefinition"
         },
         "cubeide": {
-          "$ref": "#/$defs/toolDefinition"
-        },
-        "stlink_gdb_server": {
-          "$ref": "#/$defs/toolDefinition"
-        },
-        "arm_gdb": {
+          "description": "STM32CubeIDE headless build CLI discovery settings.",
           "$ref": "#/$defs/toolDefinition"
         },
         "cubemx": {
+          "description": "STM32CubeMX executable or JAR discovery settings.",
+          "$ref": "#/$defs/toolDefinition"
+        },
+        "stlink_gdb_server": {
+          "description": "ST-LINK GDB server discovery settings.",
+          "$ref": "#/$defs/toolDefinition"
+        },
+        "arm_gdb": {
+          "description": "arm-none-eabi-gdb discovery settings.",
           "$ref": "#/$defs/toolDefinition"
         }
       }
@@ -34,44 +42,40 @@
   },
   "$defs": {
     "toolDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env_var": {
+          "description": "Environment variable checked before config candidates and PATH lookup.",
+          "type": "string"
+        },
+        "executable_name": {
+          "description": "Executable or launcher name used for PATH lookup when no explicit path candidate resolves.",
+          "type": "string"
+        },
+        "candidates": {
+          "description": "Per-platform candidate paths checked before generic PATH fallback.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "env_var": {
-              "type": "string"
+            "windows": {
+              "description": "Ordered candidate paths checked on Windows hosts.",
+              "$ref": "#/$defs/pathList"
             },
-            "executable_name": {
-              "type": "string"
+            "linux": {
+              "description": "Ordered candidate paths checked on Linux hosts.",
+              "$ref": "#/$defs/pathList"
             },
-            "candidates": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "windows": {
-                  "$ref": "#/$defs/pathList"
-                },
-                "linux": {
-                  "$ref": "#/$defs/pathList"
-                },
-                "darwin": {
-                  "$ref": "#/$defs/pathList"
-                }
-              }
+            "darwin": {
+              "description": "Ordered candidate paths checked on macOS hosts.",
+              "$ref": "#/$defs/pathList"
             }
           }
-        },
-        "windows": {
-          "$ref": "#/$defs/pathList"
-        },
-        "linux": {
-          "$ref": "#/$defs/pathList"
-        },
-        "darwin": {
-          "$ref": "#/$defs/pathList"
         }
       }
     },
     "pathList": {
+      "description": "Array of non-empty candidate paths.",
       "type": "array",
       "items": {
         "type": "string",

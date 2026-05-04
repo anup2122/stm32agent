@@ -129,7 +129,7 @@ def resolve_cubeide_path(discovery: dict[str, object]) -> str:
 
     raise FileNotFoundError(
         f"STM32CubeIDE headless CLI was not found. Set {env_var}, add {path_hint} to PATH, "
-        f"or configure the cubeide tool path in stm32-tools.local.json.{checked_suffix}"
+        f"or configure the cubeide tool path in stm32-tools.local.jsonc.{checked_suffix}"
     )
 
 

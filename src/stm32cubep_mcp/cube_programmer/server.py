@@ -66,14 +66,9 @@ from ..tools import cube_programmer_adapter
 DEFAULT_CLI_PATH = cube_programmer_adapter.DEFAULT_CLI_PATH
 DEFAULT_CLI_CANDIDATES = cube_programmer_adapter.DEFAULT_CLI_CANDIDATES
 DEFAULT_CLI_ENV_VAR = cube_programmer_adapter.DEFAULT_CLI_ENV_VAR
-LOCAL_TOOLS_CONFIG_ENV_VAR = "STM32_TOOLS_LOCAL_JSON"
-LOCAL_TOOLS_CONFIG_PATHS = (
-    "config/stm32-tools.local.json",
-    "stm32-tools.local.json",
-    ".vscode/stm32-tools.local.json",
-    ".github/stm32-tools.local.json",
-)
-TOOLS_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "stm32-tools.local.schema.json"
+LOCAL_TOOLS_CONFIG_ENV_VAR = shared.LOCAL_TOOLS_CONFIG_ENV_VAR
+LOCAL_TOOLS_CONFIG_PATHS = shared.LOCAL_TOOLS_CONFIG_PATHS
+TOOLS_SCHEMA_PATH = shared.TOOLS_SCHEMA_PATH
 SERVER_WORKFLOW_CAPABILITIES = {
     "device_connect": True,
     "flash": True,
@@ -101,8 +96,6 @@ mcp = FastMCP("stm32cubeprogrammer")
 DEFAULT_LOGS_DIR = Path(__file__).resolve().parents[3] / "logs"
 SUPPORTED_FIRMWARE_SUFFIXES = {".axf", ".elf", ".bin", ".hex", ".srec", ".s19", ".stm32", ".tsv"}
 TARGET_TOKEN_PATTERN = re.compile(r"(?:STM32)?([A-Z]\d{3}[A-Z]{0,3})", re.IGNORECASE)
-DEFAULT_LLM_RECOVERY_MAX_ATTEMPTS = 3
-RECOVERY_TEXT_LIMIT = 4000
 RECOVERY_CONNECTED_ACTIONS = (
     "retry_operation",
     "core_status",
@@ -145,6 +138,34 @@ RECOVERY_CONNECT_OVERRIDE_KEYS = {
     "speed",
     "target_sel",
 }
+
+
+def _runtime_programmer_defaults() -> dict[str, object]:
+    runtime_defaults = shared.load_runtime_defaults().get("data")
+    if not isinstance(runtime_defaults, dict):
+        return {}
+    programmer_defaults = runtime_defaults.get("programmer")
+    return programmer_defaults if isinstance(programmer_defaults, dict) else {}
+
+
+def default_llm_recovery_max_attempts() -> int:
+    value = _runtime_programmer_defaults().get("llm_recovery_max_attempts")
+    return value if isinstance(value, int) and value > 0 else 3
+
+
+def recovery_text_limit() -> int:
+    value = _runtime_programmer_defaults().get("recovery_text_limit")
+    return value if isinstance(value, int) and value > 0 else 4000
+
+
+def programmer_version_timeout_cap_seconds() -> int:
+    value = _runtime_programmer_defaults().get("programmer_version_timeout_cap_seconds")
+    return value if isinstance(value, int) and value > 0 else 20
+
+
+def runtime_check_timeout_cap_seconds() -> int:
+    value = _runtime_programmer_defaults().get("runtime_check_timeout_cap_seconds")
+    return value if isinstance(value, int) and value > 0 else 30
 
 
 def resolve_cli_path() -> str:
@@ -210,8 +231,7 @@ def validate_tools_local_schema(payload: object) -> list[str]:
         errors.append("tools must be an object.")
         return errors
 
-    supported_tools = ("cube_programmer", "cubeide", "cubemx", "stlink_gdb_server", "arm_gdb")
-    for tool_name in supported_tools:
+    for tool_name in shared.SUPPORTED_CONFIGURED_TOOLS:
         tool_entry = tools.get(tool_name)
         if tool_entry is None:
             continue
@@ -688,15 +708,16 @@ def llm_recovery_enabled() -> bool:
 def llm_recovery_max_attempts() -> int:
     raw_value = os.environ.get(
         "STM32CUBEP_MCP_LLM_RECOVERY_MAX_ATTEMPTS",
-        str(DEFAULT_LLM_RECOVERY_MAX_ATTEMPTS),
+        str(default_llm_recovery_max_attempts()),
     ).strip()
     try:
         return max(1, min(10, int(raw_value)))
     except ValueError:
-        return DEFAULT_LLM_RECOVERY_MAX_ATTEMPTS
+        return default_llm_recovery_max_attempts()
 
 
-def truncate_recovery_text(value: object, limit: int = RECOVERY_TEXT_LIMIT) -> str:
+def truncate_recovery_text(value: object, limit: int | None = None) -> str:
+    limit = recovery_text_limit() if limit is None else limit
     text = str(value or "")
     if len(text) <= limit:
         return text
@@ -897,7 +918,7 @@ def execute_llm_recovery_action(
                 operation="recovery_programmer_version",
                 log_prefix="recovery_version",
                 command_arguments=["--version"],
-                timeout_seconds=min(recovery_timeout, 20),
+                timeout_seconds=min(recovery_timeout, programmer_version_timeout_cap_seconds()),
                 success_message="Retrieved STM32CubeProgrammer version.",
                 failure_message="Unable to retrieve STM32CubeProgrammer version.",
             ),
@@ -1280,7 +1301,7 @@ def apply_runtime_target_check(
         operation="runtime_check",
         log_prefix="runtime",
         action_arguments=["-score"],
-        timeout_seconds=min(timeout_seconds, 30),
+        timeout_seconds=min(timeout_seconds, runtime_check_timeout_cap_seconds()),
         **connect_kwargs,
     )
     result["post_action_check"] = runtime_check
@@ -1298,7 +1319,7 @@ def apply_runtime_target_check(
             operation="runtime_resume",
             log_prefix="runtime_go",
             action_arguments=["--go"],
-            timeout_seconds=min(timeout_seconds, 30),
+            timeout_seconds=min(timeout_seconds, runtime_check_timeout_cap_seconds()),
             **connect_kwargs,
         )
         result["post_action_resume"] = resume_result

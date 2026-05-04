@@ -86,7 +86,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             "pluggable_features": [],
         }
         with tempfile.TemporaryDirectory() as temp_dir:
-            metadata_path = Path(temp_dir) / "config" / "stm32-project.json"
+            metadata_path = Path(temp_dir) / "config" / "stm32-project.jsonc"
 
             def fake_load_project_metadata() -> dict[str, object]:
                 if metadata_path.is_file():
@@ -114,7 +114,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
 
     def test_normalize_project_config_rewrites_verbose_fields_to_jsonc(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            metadata_path = Path(temp_dir) / "config" / "stm32-project.json"
+            metadata_path = Path(temp_dir) / "config" / "stm32-project.jsonc"
             metadata_path.parent.mkdir(parents=True)
             metadata_path.write_text(
                 json.dumps(
@@ -170,10 +170,49 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["success"])
             self.assertTrue(result["changed"])
             self.assertIn("// Actual STM32 project name.", normalized_text)
+            self.assertIn('// Default build backend used by the build server. Options: "cubeide", "cmake", "make". Default: "cubeide".', normalized_text)
+            self.assertIn('// Whether the CubeIDE project should be imported into the workspace before building. Options: true, false.', normalized_text)
             self.assertIn('"project_name": "NUCLEO-L476RG-UART2-printf"', normalized_text)
             self.assertNotIn('"ioc_path"', normalized_text)
             self.assertNotIn('"project_path"', normalized_text)
             self.assertIn('"import_project": true', normalized_text)
+
+    def test_normalize_tools_config_rewrites_to_jsonc(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools_path = Path(temp_dir) / "config" / "stm32-tools.local.jsonc"
+            tools_path.parent.mkdir(parents=True)
+            tools_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "tools": {
+                            "cubeide": {
+                                "env_var": "STM32CUBEIDE_CLI_PATH",
+                                "executable_name": "stm32cubeidec.exe",
+                                "candidates": {
+                                    "windows": ["C:/ST/STM32CubeIDE/stm32cubeidec.exe"],
+                                },
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("stm32cubep_mcp.orchestrator.server.shared.load_tools_local_config", return_value={
+                "status": "loaded",
+                "path": str(tools_path),
+                "data": json.loads(tools_path.read_text(encoding="utf-8")),
+            }):
+                result = orchestrator_server.stm32_normalize_tools_config()
+
+            normalized_text = tools_path.read_text(encoding="utf-8")
+            self.assertTrue(result["success"])
+            self.assertTrue(result["changed"])
+            self.assertIn("// Schema version for stm32-tools.local.jsonc. Options: 1.", normalized_text)
+            self.assertIn('// STM32CubeIDE headless build CLI discovery settings.', normalized_text)
+            self.assertIn('// Per-platform candidate paths checked before generic PATH fallback. Supported keys: "windows", "linux", "darwin".', normalized_text)
+            self.assertIn('"cubeide": {', normalized_text)
 
     def test_classify_prompt_routes_known_domains(self) -> None:
         self.assertEqual(orchestrator_server.classify_prompt("build the project"), "build")

@@ -8,7 +8,7 @@ Python MCP server workspace for the STM32 Agent Toolchain.
 - Implemented the first real Build MCP backend for STM32CubeIDE headless import and build flows using shared JSON metadata and file-based logs.
 - Kept Debug and CubeMX as structural MCP server scaffolds so the codebase still matches the planned tool-domain architecture.
 - Added an orchestration MCP server that owns shared configuration and routes high-level requests to the appropriate tool-domain server scaffold.
-- Moved active shared configuration into `config/` so `stm32-tools.local.json` and `stm32-project.json` are no longer conceptually attached to the programmer server.
+- Moved active shared configuration into `config/` so `stm32-tools.local.jsonc` and `stm32-project.jsonc` are no longer conceptually attached to the programmer server.
 - Kept the existing programmer functionality, tests, and CLI wrappers intact while exposing a cleaner multi-server layout.
 
 For the formal version history, see [CHANGELOG.md](CHANGELOG.md).
@@ -92,9 +92,9 @@ For a complete inventory of MCP servers, exported tools, signatures, and source 
 
 For a short repo-wide sequence view that stitches the main MCP servers together, see [docs/end-to-end-call-chain.md](docs/end-to-end-call-chain.md).
 
-Machine-local host tooling lives in [config/stm32-tools.local.json](config/stm32-tools.local.json) or an override file referenced by `STM32_TOOLS_LOCAL_JSON`.
+Machine-local host tooling lives in [config/stm32-tools.local.jsonc](config/stm32-tools.local.jsonc) or an override file referenced by `STM32_TOOLS_LOCAL_JSON`.
 
-Project metadata lives in [config/stm32-project.json](config/stm32-project.json) or an override file referenced by `STM32_PROJECT_JSON`.
+Project metadata lives in [config/stm32-project.jsonc](config/stm32-project.jsonc) or an override file referenced by `STM32_PROJECT_JSON`.
 
 For completed work, current gaps, and release history, see [CHANGELOG.md](CHANGELOG.md).
 
@@ -136,7 +136,7 @@ Current orchestration tools:
 
 ## Build MCP
 
-The Build MCP server executes STM32CubeIDE headless builds using the settings in [config/stm32-project.json](config/stm32-project.json) and the tool path in [config/stm32-tools.local.json](config/stm32-tools.local.json).
+The Build MCP server executes STM32CubeIDE headless builds using the settings in [config/stm32-project.jsonc](config/stm32-project.jsonc) and the tool path in [config/stm32-tools.local.jsonc](config/stm32-tools.local.jsonc).
 
 Current build tools:
 

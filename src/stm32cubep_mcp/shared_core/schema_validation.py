@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .constants import SUPPORTED_CONFIGURED_TOOLS
+
 
 def validate_string_list(value: object, field_name: str, errors: list[str]) -> None:
     if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
@@ -20,8 +22,7 @@ def validate_tools_local_schema(payload: object) -> list[str]:
         errors.append("tools must be an object.")
         return errors
 
-    supported_tools = ("cube_programmer", "cubeide", "cubemx", "stlink_gdb_server", "arm_gdb")
-    for tool_name in supported_tools:
+    for tool_name in SUPPORTED_CONFIGURED_TOOLS:
         tool_entry = tools.get(tool_name)
         if tool_entry is None:
             continue
@@ -43,6 +44,61 @@ def validate_tools_local_schema(payload: object) -> list[str]:
         elif isinstance(candidates, dict):
             for platform_name, platform_candidates in candidates.items():
                 validate_string_list(platform_candidates, f"tools.{tool_name}.candidates.{platform_name}", errors)
+
+    return errors
+
+
+def validate_runtime_defaults_schema(payload: object) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(payload, dict):
+        return ["Document must be a JSON object."]
+
+    version = payload.get("version")
+    if not isinstance(version, int):
+        errors.append("version must be an integer.")
+
+    project = payload.get("project")
+    if project is not None and not isinstance(project, dict):
+        errors.append("project must be an object when provided.")
+    elif isinstance(project, dict):
+        for field_name in ("uart_core_feature_id", "generated_projects_dir"):
+            value = project.get(field_name)
+            if value is not None and not isinstance(value, str):
+                errors.append(f"project.{field_name} must be a string when provided.")
+
+    programmer = payload.get("programmer")
+    if programmer is not None and not isinstance(programmer, dict):
+        errors.append("programmer must be an object when provided.")
+    elif isinstance(programmer, dict):
+        for field_name in (
+            "llm_recovery_max_attempts",
+            "recovery_text_limit",
+            "programmer_version_timeout_cap_seconds",
+            "runtime_check_timeout_cap_seconds",
+        ):
+            value = programmer.get(field_name)
+            if value is not None and not isinstance(value, int):
+                errors.append(f"programmer.{field_name} must be an integer when provided.")
+
+    debug = payload.get("debug")
+    if debug is not None and not isinstance(debug, dict):
+        errors.append("debug must be an object when provided.")
+    elif isinstance(debug, dict):
+        for field_name in ("default_session_name", "runtime_validation_session_name"):
+            value = debug.get(field_name)
+            if value is not None and not isinstance(value, str):
+                errors.append(f"debug.{field_name} must be a string when provided.")
+        for field_name in (
+            "default_gdb_port",
+            "default_swo_port",
+            "fallback_port_range_start",
+            "fallback_port_range_end",
+            "reset_timeout_cap_seconds",
+            "cleanup_timeout_seconds",
+        ):
+            value = debug.get(field_name)
+            if value is not None and not isinstance(value, int):
+                errors.append(f"debug.{field_name} must be an integer when provided.")
 
     return errors
 

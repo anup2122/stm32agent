@@ -1,0 +1,41 @@
+{
+  // Schema version for stm32-runtime-defaults.jsonc. Options: 1.
+  "version": 1,
+  // Project/workflow defaults used when request or metadata values are absent.
+  "project": {
+    // Core feature id that implies the managed UART printf project-name shortcut.
+    "uart_core_feature_id": "core-uart-device-to-pc",
+    // Repository-relative generated projects root.
+    "generated_projects_dir": "generated"
+  },
+  // STM32CubeProgrammer recovery defaults.
+  "programmer": {
+    // Default max LLM-guided recovery attempts when the env override is absent.
+    "llm_recovery_max_attempts": 3,
+    // Maximum number of characters included in recovery prompts and logs.
+    "recovery_text_limit": 4000,
+    // Upper bound for the programmer-version probe inside recovery steps.
+    "programmer_version_timeout_cap_seconds": 20,
+    // Upper bound for runtime post-flash checks and resume probes.
+    "runtime_check_timeout_cap_seconds": 30
+  },
+  // Debug workflow defaults.
+  "debug": {
+    // Default managed debug session name.
+    "default_session_name": "default",
+    // Session name used by post-flash runtime validation.
+    "runtime_validation_session_name": "feature-runtime-validation",
+    // Fallback GDB server TCP port when not provided by project metadata.
+    "default_gdb_port": 55001,
+    // Fallback SWO TCP port when not provided by project metadata.
+    "default_swo_port": 55002,
+    // Start of the fallback debug port scan range.
+    "fallback_port_range_start": 55001,
+    // End of the fallback debug port scan range.
+    "fallback_port_range_end": 55100,
+    // Cap for reset-related orchestration timeouts.
+    "reset_timeout_cap_seconds": 60,
+    // Default cleanup timeout when shutting down managed debug sessions.
+    "cleanup_timeout_seconds": 10
+  }
+}

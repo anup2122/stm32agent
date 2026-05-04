@@ -13,7 +13,7 @@ Inside ``orchestrate_feature_delivery()``, the workflow proceeds in this order:
     natural-language prompt into a deterministic requirements contract and plan
     artifact.
 2. Call ``ensure_project_metadata_for_feature_contract(contract)`` to fill or
-    normalize ``stm32-project.json`` fields required for the downstream flow.
+    normalize ``stm32-project.jsonc`` fields required for the downstream flow.
 3. Resolve the effective CubeMX request and derive the pending increments from
     the contract and current plan state.
 4. For each pending increment, either:
