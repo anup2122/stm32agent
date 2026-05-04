@@ -32,7 +32,7 @@ Current large files:
 
 - [src/stm32cubep_mcp/debug/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/debug/server.py) at about `80 KB`
 - [src/stm32cubep_mcp/cube_programmer/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/cube_programmer/server.py) at about `77 KB`
-- [src/stm32cubep_mcp/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/server.py) at about `75 KB`
+- [src/stm32cubep_mcp/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/server.py) is now a small legacy compatibility stub, and the active programmer server lives in [src/stm32cubep_mcp/cube_programmer/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/cube_programmer/server.py) at about `77 KB`
 - [src/stm32cubep_mcp/orchestrator/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/orchestrator/server.py) at about `72 KB`
 - [src/stm32cubep_mcp/cubemx/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/cubemx/server.py) at about `60 KB`
 - [src/stm32cubep_mcp/requirements/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/requirements/server.py) at about `40 KB`
@@ -572,6 +572,6 @@ If we start coding immediately after this plan, I recommend this exact first sli
 1. create `project_model/` with `PlanState`, `ProjectState`, `Observation`, and adapters
 2. extract plan persistence from [requirements/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/requirements/server.py) into `application/services/plan_service.py`
 3. keep [requirements/server.py](C:/stm32/stm32agent/src/stm32cubep_mcp/requirements/server.py) as a wrapper over the new service
-4. add unit tests for plan model round-trip and compatibility with the current `plan.md` format
+4. add unit tests for plan model round-trip and compatibility with the current [plan.md](plan.md) format
 
 That slice is small, useful, and low-risk. It also creates the first real seam for the larger refactor.

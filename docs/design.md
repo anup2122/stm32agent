@@ -113,6 +113,48 @@ It should not:
 - invent feature breakdowns
 - run open-ended planning by itself
 
+### 6. Host Tool Resolution Should Be Layered And Cross-Platform
+
+The STM32 MCP servers should not assume VS Code, one operating system, or one
+manual setup path.
+
+The preferred host-tool resolution order is:
+
+1. explicit request override when a workflow provides one
+2. environment variable override for CI, containers, and non-VS Code clients
+3. machine-local `stm32-tools.local.json`
+4. OS-specific discovery through adapter modules and standard install paths
+5. readiness or bootstrap guidance when no valid tool path is found
+
+This keeps the servers portable across Windows, Linux, macOS, and different MCP
+clients while preserving deterministic execution.
+
+Normal MCP tool calls should use cheap path resolution and cached in-process
+results when practical. Expensive version probes and full host diagnostics
+should remain in readiness or capabilities flows rather than delaying every
+agent invocation.
+
+The adapter boundary should stay narrow:
+
+- adapters own tool discovery, launch-path resolution, command construction,
+  and raw subprocess execution
+- server and workflow layers own retries, recovery policy, session management,
+  structured result shaping, and orchestration decisions
+
+The current refactor in this repository follows that split more strictly:
+
+- STM32CubeProgrammer adapters own connect and operation command construction
+    plus cached host-tool discovery
+- ST-LINK GDB server and ARM GDB adapters own launch, list, batch, and version
+    command construction plus cached host-tool discovery
+- debug and programmer server modules keep stable wrapper functions so tests and
+    callers can still patch server-level seams while execution policy remains in
+    the server layer
+
+This is why CubeIDE and CubeMX already fit naturally into adapters, and why the
+same structure should be applied to STM32CubeProgrammer, ST-LINK GDB server,
+and ARM GDB over time.
+
 ## CubeMX-First Development Strategy
 
 The first CubeMX implementation phase should focus on deterministic backend capability, not prompt intelligence.

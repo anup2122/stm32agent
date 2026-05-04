@@ -1,3 +1,83 @@
+"""Requirement decomposition MCP server.
+
+Readme-style call chain for this module:
+
+1. The installed console script `stm32-requirements-mcp` is declared in
+    `pyproject.toml` and points to `stm32cubep_mcp.requirements.server:main`.
+2. Starting `stm32-requirements-mcp` calls `main()` in this module.
+3. `main()` calls `mcp.run(transport="stdio")` to start the FastMCP server.
+4. An MCP client connects and invokes the `stm32_requirements_decompose` tool.
+5. `stm32_requirements_decompose(prompt, persist_plan=False)` calls
+    `build_requirements_contract(prompt)`.
+6. `build_requirements_contract(prompt)` assembles the deterministic planning
+    contract by calling, in order:
+    - `detect_target(prompt)`
+    - `build_intent_bundle(prompt)`
+    - `legacy_requirements_dict_from_intent_bundle(intent_bundle)`
+    - `detect_project_context(prompt)`
+    - `build_feature_increments(core_features, pluggable_features)`
+    - `current_increment_from_increments(increments)`
+    - `make_contract(...)`
+    - `default_plan_file(project_context)` as part of the `make_contract(...)`
+      arguments
+
+This means `stm32_requirements_decompose` is the first prompt-handling MCP tool
+for the requirements workflow, but it is not the process startup entrypoint.
+The process entrypoint is `main()`.
+
+Exact prompt-to-contract chain inside this file:
+
+`stm32_requirements_decompose(prompt, persist_plan=False)`
+-> `build_requirements_contract(prompt)`
+-> `detect_target(prompt)`
+-> `build_intent_bundle(prompt)`
+-> `legacy_requirements_dict_from_intent_bundle(intent_bundle)`
+-> `detect_project_context(prompt)`
+-> `build_feature_increments(core_features, pluggable_features)`
+-> `current_increment_from_increments(increments)`
+-> `make_contract(...)`
+-> `validate_contract(contract)` back in `stm32_requirements_decompose(...)`
+-> optional `persist_plan_artifact(contract)` when `persist_plan=True`
+
+Concrete tested prompt example:
+
+`I have attached STM32L476Rg Nucleo device. write a project that will send
+data from the device to pc and run and test it`
+
+For that prompt, the contract path in this module resolves target
+`NUCLEO-L476RG`, recognizes a new-device project context, selects the core
+feature `core-uart-device-to-pc`, creates increment `increment-core-001`, and
+returns a validated deterministic contract for the IOC builder workflow.
+
+How an MCP client knows to call this tool:
+
+1. The client does not infer the callable tool from the description text alone.
+2. After `main()` starts the FastMCP server through `mcp.run(...)`, the client
+    asks the server for its advertised tool list.
+3. The server exposes this function as the tool
+    `stm32_requirements_decompose` because the `@mcp.tool(...)` decorator wraps
+    the function and no alternate exported name is provided.
+4. The advertised tool definition includes the tool name, the human-readable
+    description, and the input schema derived from the function signature:
+    `prompt: str` and `persist_plan: bool = False`.
+5. The client then chooses the tool by using the advertised tool metadata as a
+    whole. The description helps selection, but the binding is by tool name and
+    schema, not by description text alone.
+
+In practice there are two common calling modes:
+
+- Deterministic code can call the tool explicitly by its exported name
+  `stm32_requirements_decompose` after discovery.
+- An LLM-driven client can choose the tool from the advertised list using the
+  tool name, description, argument schema, and the active user request.
+
+Repo-specific note:
+
+Some internal flows in this repository bypass MCP discovery entirely and call
+the Python function directly. In those flows, there is no tool-selection step;
+the caller already decided to invoke `stm32_requirements_decompose(...)`.
+"""
+
 from __future__ import annotations
 
 import json

@@ -11,17 +11,51 @@ Python MCP server workspace for the STM32 Agent Toolchain.
 - Moved active shared configuration into `config/` so `stm32-tools.local.json` and `stm32-project.json` are no longer conceptually attached to the programmer server.
 - Kept the existing programmer functionality, tests, and CLI wrappers intact while exposing a cleaner multi-server layout.
 
-For the formal version history, see `CHANGELOG.md`.
+For the formal version history, see [CHANGELOG.md](CHANGELOG.md).
+
+## Quick Start
+
+Use this path when you want the shortest working setup.
+
+1. Install the workspace tools:
+
+```powershell
+.\scripts\install-dev.ps1
+```
+
+2. Register the MCP servers locally by using [config/mcp.example.json](config/mcp.example.json) as the template for [.vscode/mcp.json](.vscode/mcp.json).
+
+3. Run a quick readiness check:
+
+```powershell
+.\scripts\smoke-test.ps1
+```
+
+4. Start with the orchestrator server in Copilot and use a high-level request such as:
+
+```text
+Use stm32_orchestrate_prompt with prompt="build the current STM32 project"
+```
+
+For a fuller operator guide, direct-tool examples, and debug-oriented flows, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
+
+## Docs Index
+
+- [docs/QUICKSTART.md](docs/QUICKSTART.md): operator-oriented setup and example prompts
+- [docs/mcp-server-tools-reference.md](docs/mcp-server-tools-reference.md): all MCP servers, tools, signatures, and source locations
+- [docs/end-to-end-call-chain.md](docs/end-to-end-call-chain.md): stitched architecture flow and Mermaid diagrams
+- [docs/design.md](docs/design.md): design-level architecture and workflow intent
+- [docs/stm32-agent-toolchain-plan.md](docs/stm32-agent-toolchain-plan.md): roadmap and planning history
 
 ## Repository Structure
 
 - `config/`: shared host and project configuration for the full STM32 workflow
-- `src/stm32cubep_mcp/server.py`: current STM32CubeProgrammer MCP server implementation
-- `src/stm32cubep_mcp/cube_programmer/`: compatibility package alias for the programmer server
-- `src/stm32cubep_mcp/build/`: CubeIDE Build MCP server
-- `src/stm32cubep_mcp/debug/`: ST-LINK GDB server Phase 1 MCP
-- `src/stm32cubep_mcp/cubemx/`: dummy CubeMX MCP server scaffold
-- `src/stm32cubep_mcp/orchestrator/`: orchestration MCP server scaffold
+- [src/stm32cubep_mcp/cube_programmer/server.py](src/stm32cubep_mcp/cube_programmer/server.py): STM32CubeProgrammer MCP server implementation
+- [src/stm32cubep_mcp/server.py](src/stm32cubep_mcp/server.py): legacy compatibility stub that is no longer used as an MCP entrypoint
+- [src/stm32cubep_mcp/build/](src/stm32cubep_mcp/build/): CubeIDE Build MCP server
+- [src/stm32cubep_mcp/debug/](src/stm32cubep_mcp/debug/): ST-LINK GDB server Phase 1 MCP
+- [src/stm32cubep_mcp/cubemx/](src/stm32cubep_mcp/cubemx/): dummy CubeMX MCP server scaffold
+- [src/stm32cubep_mcp/orchestrator/](src/stm32cubep_mcp/orchestrator/): orchestration MCP server scaffold
 
 ## Current scope
 
@@ -52,17 +86,21 @@ Run the install script from PowerShell:
 .\scripts\install-dev.ps1
 ```
 
-For a shorter operator-oriented guide, see `QUICKSTART.md`.
+For a shorter operator-oriented guide, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
-Machine-local host tooling lives in `config/stm32-tools.local.json` or an override file referenced by `STM32_TOOLS_LOCAL_JSON`.
+For a complete inventory of MCP servers, exported tools, signatures, and source locations, see [docs/mcp-server-tools-reference.md](docs/mcp-server-tools-reference.md).
 
-Project metadata lives in `config/stm32-project.json` or an override file referenced by `STM32_PROJECT_JSON`.
+For a short repo-wide sequence view that stitches the main MCP servers together, see [docs/end-to-end-call-chain.md](docs/end-to-end-call-chain.md).
 
-For completed work, current gaps, and release history, see `CHANGELOG.md`.
+Machine-local host tooling lives in [config/stm32-tools.local.json](config/stm32-tools.local.json) or an override file referenced by `STM32_TOOLS_LOCAL_JSON`.
 
-To run the hardware integration test against `UART_ReceptionToIdle_CircularDMA.axf`, use `scripts/run-integration-test.ps1`.
+Project metadata lives in [config/stm32-project.json](config/stm32-project.json) or an override file referenced by `STM32_PROJECT_JSON`.
 
-To run a one-shot production flash cycle against `UART_ReceptionToIdle_CircularDMA.axf`, use `scripts/run-production-flash-cycle.ps1`.
+For completed work, current gaps, and release history, see [CHANGELOG.md](CHANGELOG.md).
+
+To run the hardware integration test against `UART_ReceptionToIdle_CircularDMA.axf`, use [scripts/run-integration-test.ps1](scripts/run-integration-test.ps1).
+
+To run a one-shot production flash cycle against `UART_ReceptionToIdle_CircularDMA.axf`, use [scripts/run-production-flash-cycle.ps1](scripts/run-production-flash-cycle.ps1).
 
 ## Smoke test
 
@@ -72,7 +110,7 @@ To run a one-shot production flash cycle against `UART_ReceptionToIdle_CircularD
 
 ## VS Code integration
 
-The workspace contains `.vscode/mcp.json` that registers:
+The workspace contains [.vscode/mcp.json](.vscode/mcp.json) that registers:
 
 - `stm32orchestrator`
 - `stm32cubeprogrammer`
@@ -98,7 +136,7 @@ Current orchestration tools:
 
 ## Build MCP
 
-The Build MCP server executes STM32CubeIDE headless builds using the settings in `config/stm32-project.json` and the tool path in `config/stm32-tools.local.json`.
+The Build MCP server executes STM32CubeIDE headless builds using the settings in [config/stm32-project.json](config/stm32-project.json) and the tool path in [config/stm32-tools.local.json](config/stm32-tools.local.json).
 
 Current build tools:
 

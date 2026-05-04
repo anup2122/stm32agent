@@ -1,4 +1,23 @@
-"""Shared application services."""
+"""Shared application services.
+
+This package groups reusable application-layer helpers that the orchestrator and
+other server modules compose into larger workflows.
+
+The modules here are intentionally narrower than the workflow layer:
+
+- ``routing_service`` classifies prompts and resolves orchestration mode.
+- ``project_config_service`` reads, normalizes, and auto-fills project metadata.
+- ``workflow_state`` and ``plan_service`` shape contract increments and live
+    plan state into a form workflows can execute.
+- ``ioc_builder_service`` turns validated contracts into IOC plan/apply steps.
+- ``cubemx_*_service`` isolates CubeMX host discovery, inspection, runtime,
+    logging, and high-level tool-facing composition.
+- ``artifact_service`` resolves which firmware artifact should be flashed.
+
+These functions are mostly stateless and dependency-injected so the workflow
+layer can compose them without embedding heavy policy inside the MCP tool
+handlers themselves.
+"""
 
 from .artifact_service import select_flash_artifact
 from .cubemx_host_service import (

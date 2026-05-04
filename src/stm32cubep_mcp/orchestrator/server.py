@@ -1,3 +1,42 @@
+"""High-level STM32 orchestration entrypoints.
+
+This module is the main bridge from MCP tools into the application layer.
+The tool handlers here keep policy at the orchestration level and delegate the
+actual flow composition to ``stm32cubep_mcp.application.services`` and
+``stm32cubep_mcp.application.workflows``.
+
+Exact generic routing chain:
+
+``stm32_orchestrate_prompt``
+-> ``application.workflows.prompt_router.route_prompt``
+-> one selected workflow such as build/flash, feature delivery, debug,
+   CubeMX regeneration, or host-capability reporting.
+
+Exact feature-delivery chain:
+
+``stm32_orchestrate_feature_prompt``
+-> ``run_feature_delivery_workflow``
+-> ``application.workflows.generate_project.orchestrate_feature_delivery``
+-> requirements decomposition
+-> project metadata preparation
+-> IOC construct/apply
+-> CubeMX regeneration
+-> build
+-> flash
+-> runtime validation
+
+Concrete example prompt covered by tests:
+
+``I have attached STM32L476Rg Nucleo device. write a project that will send
+data from the device to pc and run and test it``
+
+That prompt is classified as a requirements-driven firmware-delivery request,
+then routed into the feature-delivery workflow above. The requirements server
+turns it into a contract targeting ``NUCLEO-L476RG`` with the core feature
+``core-uart-device-to-pc`` and a first increment ``increment-core-001`` before
+the downstream IOC, CubeMX, build, and flash stages run.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy

@@ -18,8 +18,8 @@ dev = [
 ]
 
 [project.scripts]
-stm32cubep-mcp = "stm32cubep_mcp.server:main"
-stm32cubeprogrammer-mcp = "stm32cubep_mcp.server:main"
+stm32cubep-mcp = "stm32cubep_mcp.cube_programmer.server:main"
+stm32cubeprogrammer-mcp = "stm32cubep_mcp.cube_programmer.server:main"
 stm32-build-mcp = "stm32cubep_mcp.build.server:main"
 stm32-debug-mcp = "stm32cubep_mcp.debug.server:main"
 stm32-cubemx-mcp = "stm32cubep_mcp.cubemx.server:main"

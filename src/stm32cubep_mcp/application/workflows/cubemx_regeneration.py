@@ -1,3 +1,39 @@
+"""CubeMX regeneration workflows.
+
+This module contains both the high-level orchestration entry for CubeMX-only
+regeneration and the lower-level regeneration workflow used by the CubeMX MCP
+server and the feature-delivery pipeline.
+
+Exact ``orchestrate_cubemx_regeneration()`` chain:
+
+1. ``configured_cubemx_request()`` resolves the effective CubeMX request from
+    shared project metadata.
+2. Required metadata is checked.
+3. ``regenerate_project(...)`` is called with the resolved IOC path, project
+    name, toolchain, project path, optional script path, and timeout values.
+
+Exact ``regenerate_project_workflow()`` chain:
+
+1. ``resolve_cubemx_project_inputs_fn(...)`` resolves IOC/project/script paths
+    and completion markers.
+2. ``resolve_cubemx_launcher_fn()`` resolves how CubeMX will actually be
+    launched on the host.
+3. ``resolve_generation_root_fn(...)`` and ``build_cubemx_script_fn(...)``
+    prepare the output root and the CubeMX script contents.
+4. ``collect_tree_state_fn(...)`` snapshots the file tree before generation.
+5. ``run_cubemx_command_fn(...)`` launches CubeMX with the generated script.
+6. ``wait_for_completion_markers_fn(...)`` waits for completion markers or file
+    tree changes that prove generation finished.
+7. ``diff_tree_state_fn(...)`` computes affected files.
+8. ``collect_output_review_fn(...)`` reviews the generated output layout.
+9. ``build_project_fn(...)`` optionally validates the generated project build.
+10. ``write_cubemx_log_fn(...)`` records the full run, script, results, and
+     file deltas to a log file.
+
+The returned result becomes the CubeMX stage payload used by both standalone
+CubeMX operations and the broader feature-delivery workflow.
+"""
+
 from __future__ import annotations
 
 import time

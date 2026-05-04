@@ -1,3 +1,50 @@
+"""STM32CubeProgrammer MCP server implementation.
+
+This module is the concrete programmer-domain server. Its MCP tools translate
+high-level connect, flash, memory, and core-control requests into
+STM32CubeProgrammer CLI invocations and structured result payloads.
+
+Exact generic connected-tool chain:
+
+`@mcp.tool` handler such as `stm32_download(...)` or `stm32_flash_firmware(...)`
+-> build action arguments and connection kwargs
+-> `execute_connected_operation(...)`
+-> `execute_with_retry(...)`
+-> `build_fallback_attempts(...)`
+-> `build_connect_arguments(...)` plus operation-specific action arguments
+-> `run_cli_command(...)`
+-> `write_operation_log(...)`
+-> `finalize_operation_result(...)`
+-> `finalize_connected_tool_result(...)`
+-> optional `maybe_run_llm_recovery(...)`
+
+Exact connect-tool chain:
+
+`stm32_connect(...)`
+-> `execute_connect(...)`
+-> `execute_with_retry(...)`
+-> `run_cli_command(...)`
+-> `finalize_connect_tool_result(...)`
+-> optional `maybe_run_llm_recovery(...)`
+
+Exact flash path for the production-style tool:
+
+`stm32_flash_firmware(...)`
+-> `validate_download_inputs(...)`
+-> `build_flash_arguments(...)`
+-> `execute_connected_operation(...)`
+-> `execute_with_retry(...)`
+-> `run_cli_command(...)`
+-> `finalize_connected_tool_result(...)`
+-> `apply_runtime_target_check(...)` when post-action is `go`
+-> optional `maybe_run_llm_recovery(...)`
+
+The important architectural boundary is that this file owns transport from MCP
+tool calls to CLI execution, retries, logging, and recovery. It does not own
+high-level multi-domain orchestration; that responsibility lives in the
+orchestrator and application workflow layers.
+"""
+
 from __future__ import annotations
 
 import json
@@ -14,22 +61,11 @@ from mcp import types as mcp_types
 from mcp.server.fastmcp import Context, FastMCP
 
 from .. import shared
+from ..tools import cube_programmer_adapter
 
-DEFAULT_CLI_PATH = (
-    r"C:\Program Files (x86)\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe"
-)
-DEFAULT_CLI_CANDIDATES = {
-    "windows": [DEFAULT_CLI_PATH],
-    "linux": [
-        "/opt/st/stm32cubeprogrammer/bin/STM32_Programmer_CLI",
-        "/usr/local/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI",
-    ],
-    "darwin": [
-        "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI",
-        "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI",
-    ],
-}
-DEFAULT_CLI_ENV_VAR = "STM32_PROGRAMMER_CLI_PATH"
+DEFAULT_CLI_PATH = cube_programmer_adapter.DEFAULT_CLI_PATH
+DEFAULT_CLI_CANDIDATES = cube_programmer_adapter.DEFAULT_CLI_CANDIDATES
+DEFAULT_CLI_ENV_VAR = cube_programmer_adapter.DEFAULT_CLI_ENV_VAR
 LOCAL_TOOLS_CONFIG_ENV_VAR = "STM32_TOOLS_LOCAL_JSON"
 LOCAL_TOOLS_CONFIG_PATHS = (
     "config/stm32-tools.local.json",
@@ -112,25 +148,7 @@ RECOVERY_CONNECT_OVERRIDE_KEYS = {
 
 
 def resolve_cli_path() -> str:
-    discovery = discover_cube_programmer()
-    cli_path = discovery.get("resolved_path")
-    if isinstance(cli_path, str) and Path(cli_path).is_file():
-        return cli_path
-
-    checked_paths = [str(candidate["path"]) for candidate in discovery.get("checked_candidates", [])]
-    checked_suffix = f" Checked: {checked_paths}." if checked_paths else ""
-    env_var = str(discovery.get("env_var") or DEFAULT_CLI_ENV_VAR)
-    if discovery.get("config_error"):
-        checked_suffix = f" Config error: {discovery['config_error']}.{checked_suffix}"
-
-    if discovery.get("path_hint"):
-        checked_suffix = f"{checked_suffix} PATH lookup name: {discovery['path_hint']}."
-
-    raise FileNotFoundError(
-        "STM32CubeProgrammer CLI was not found. Set "
-        f"{env_var}, add STM32_Programmer_CLI to PATH, or install the tool at {DEFAULT_CLI_PATH}."
-        f"{checked_suffix}"
-    )
+    return cube_programmer_adapter.resolve_cube_programmer_path(discover_cube_programmer())
 
 
 def host_platform_name() -> str:
@@ -145,7 +163,7 @@ def host_platform_name() -> str:
 
 
 def default_cli_executable_name() -> str:
-    return "STM32_Programmer_CLI.exe" if host_platform_name() == "windows" else "STM32_Programmer_CLI"
+    return cube_programmer_adapter.default_cli_executable_name(host_platform_name())
 
 
 def unique_paths(paths: Sequence[Path]) -> list[Path]:
@@ -272,6 +290,10 @@ def load_tools_local_config() -> dict[str, object]:
     )
 
 
+def load_project_metadata() -> dict[str, object]:
+    return shared.load_project_metadata()
+
+
 def resolve_candidate_path(candidate: str, *, base_path: Path | None = None) -> Path:
     path = Path(candidate).expanduser()
     if path.is_absolute() or base_path is None:
@@ -280,79 +302,12 @@ def resolve_candidate_path(candidate: str, *, base_path: Path | None = None) -> 
 
 
 def discover_cube_programmer() -> dict[str, object]:
-    host_platform = host_platform_name()
-    tools_config = load_tools_local_config()
-    config_data = tools_config.get("data")
-    tool_entry: dict[str, object] = {}
-
-    if isinstance(config_data, dict):
-        tools = config_data.get("tools")
-        if isinstance(tools, dict):
-            cube_programmer = tools.get("cube_programmer")
-            if isinstance(cube_programmer, dict):
-                tool_entry = cube_programmer
-
-    env_var = str(tool_entry.get("env_var") or DEFAULT_CLI_ENV_VAR)
-    executable_name = str(tool_entry.get("executable_name") or default_cli_executable_name())
-    config_path = Path(str(tools_config["path"])) if isinstance(tools_config.get("path"), str) else None
-    checked_candidates: list[dict[str, object]] = []
-    seen_paths: set[str] = set()
-    resolved_path: str | None = None
-    resolution_source: str | None = None
-
-    def record_candidate(path_value: Path | str, source: str) -> None:
-        nonlocal resolved_path, resolution_source
-
-        path_text = str(path_value)
-        normalized = os.path.normcase(path_text)
-        if normalized in seen_paths:
-            return
-        seen_paths.add(normalized)
-
-        candidate_path = Path(path_text)
-        exists = candidate_path.is_file()
-        checked_candidates.append(
-            {
-                "path": path_text,
-                "exists": exists,
-                "source": source,
-            }
-        )
-        if exists and resolved_path is None:
-            resolved_path = path_text
-            resolution_source = source
-
-    env_candidate = os.environ.get(env_var)
-    if env_candidate:
-        record_candidate(Path(env_candidate).expanduser(), "environment")
-
-    config_candidates = tool_entry.get("candidates")
-    if isinstance(config_candidates, dict):
-        platform_candidates = config_candidates.get(host_platform)
-        if isinstance(platform_candidates, list):
-            for candidate in platform_candidates:
-                if isinstance(candidate, str) and candidate.strip():
-                    record_candidate(resolve_candidate_path(candidate, base_path=config_path), "config")
-
-    which_result = shutil.which(executable_name)
-    if which_result:
-        record_candidate(which_result, "path")
-
-    for candidate in DEFAULT_CLI_CANDIDATES.get(host_platform, []):
-        record_candidate(Path(candidate), "default")
-
-    return {
-        "tool": "cube_programmer",
-        "host_platform": host_platform,
-        "env_var": env_var,
-        "path_hint": executable_name,
-        "config_path": tools_config.get("path"),
-        "config_status": tools_config.get("status"),
-        "config_error": "; ".join(str(error) for error in tools_config.get("errors", [])) or None,
-        "resolved_path": resolved_path,
-        "resolution_source": resolution_source,
-        "checked_candidates": checked_candidates,
-    }
+    return cube_programmer_adapter.discover_cube_programmer(
+        host_platform=host_platform_name(),
+        load_tools_local_config=load_tools_local_config,
+        resolve_candidate_path=resolve_candidate_path,
+        which_resolver=shutil.which,
+    )
 
 
 def summarize_config_status(config_result: dict[str, object]) -> dict[str, object]:
@@ -551,7 +506,10 @@ def build_connect_arguments(
 
 
 def build_connect_command(**connect_kwargs: object) -> list[str]:
-    return [resolve_cli_path(), *build_connect_arguments(**connect_kwargs)]
+    return cube_programmer_adapter.build_connect_command(
+        resolve_cli_path(),
+        build_connect_arguments(**connect_kwargs),
+    )
 
 
 def build_download_arguments(
@@ -562,19 +520,13 @@ def build_download_arguments(
     skip_erase: bool = False,
     verify_mode: VerifyMode = "legacy",
 ) -> list[str]:
-    arguments: list[str] = []
-    if skip_erase:
-        arguments.append("--skipErase")
-    arguments.extend(["--download", file_path])
-    if address is not None:
-        arguments.append(address)
-    if incremental:
-        arguments.append("incremental")
-    if verify_mode == "legacy":
-        arguments.append("--verify")
-    elif verify_mode == "fast":
-        arguments.extend(["--verify", "fast"])
-    return arguments
+    return cube_programmer_adapter.build_download_arguments(
+        file_path,
+        address,
+        incremental=incremental,
+        skip_erase=skip_erase,
+        verify_mode=verify_mode,
+    )
 
 
 def validate_download_inputs(file_path: str, address: str | None = None) -> Path:
@@ -655,13 +607,7 @@ def detect_target_mismatch(
 
 
 def build_post_download_arguments(post_action: PostDownloadAction) -> list[str]:
-    if post_action == "none":
-        return []
-    if post_action == "reset":
-        return ["-rst"]
-    if post_action == "hardware_reset":
-        return ["-hardRst"]
-    return ["--go"]
+    return cube_programmer_adapter.build_post_download_arguments(post_action)
 
 
 def build_flash_arguments(
@@ -673,60 +619,38 @@ def build_flash_arguments(
     verify_mode: VerifyMode = "legacy",
     post_action: PostDownloadAction = "go",
 ) -> list[str]:
-    return [
-        *build_erase_arguments(sectors),
-        *build_download_arguments(
-            file_path,
-            address,
-            incremental=incremental,
-            skip_erase=True,
-            verify_mode=verify_mode,
-        ),
-        *build_post_download_arguments(post_action),
-    ]
+    return cube_programmer_adapter.build_flash_arguments(
+        file_path,
+        address,
+        sectors=sectors,
+        incremental=incremental,
+        verify_mode=verify_mode,
+        post_action=post_action,
+    )
 
 
 def build_erase_arguments(sectors: Sequence[str] | None = None) -> list[str]:
-    arguments = ["--erase"]
-    if sectors:
-        arguments.extend(normalize_tokens(sectors))
-    else:
-        arguments.append("all")
-    return arguments
+    return cube_programmer_adapter.build_erase_arguments(sectors)
 
 
 def build_verify_arguments(verify_mode: VerifyMode = "legacy") -> list[str]:
-    if verify_mode == "none":
-        return []
-    if verify_mode == "fast":
-        return ["--verify", "fast"]
-    return ["--verify"]
+    return cube_programmer_adapter.build_verify_arguments(verify_mode)
 
 
 def build_reset_arguments(reset_kind: ResetKind = "software") -> list[str]:
-    mapping = {
-        "software": ["-rst"],
-        "hardware": ["-hardRst"],
-        "bootloader": ["-rstbl"],
-    }
-    return mapping[reset_kind]
+    return cube_programmer_adapter.build_reset_arguments(reset_kind)
 
 
 def build_upload_arguments(address: str, size: int, file_path: str) -> list[str]:
-    return ["--upload", address, str(size), file_path]
+    return cube_programmer_adapter.build_upload_arguments(address, size, file_path)
 
 
 def build_checksum_arguments(address: str | None = None, size: int | None = None) -> list[str]:
-    arguments = ["--checksum"]
-    if address is not None:
-        arguments.append(address)
-    if size is not None:
-        arguments.append(str(size))
-    return arguments
+    return cube_programmer_adapter.build_checksum_arguments(address, size)
 
 
 def build_read_memory_arguments(width: MemoryWidth, address: str, size: int) -> list[str]:
-    return [f"-r{width}", address, str(size)]
+    return cube_programmer_adapter.build_read_memory_arguments(width, address, size)
 
 
 def build_write_memory_arguments(
@@ -736,56 +660,24 @@ def build_write_memory_arguments(
     *,
     verify: bool = True,
 ) -> list[str]:
-    arguments = [f"-w{width}", address, *normalize_tokens(data)]
-    if not verify:
-        arguments.append("--noverify")
-    return arguments
+    return cube_programmer_adapter.build_write_memory_arguments(
+        width,
+        address,
+        data,
+        verify=verify,
+    )
 
 
 def build_go_arguments(address: str | None = None) -> list[str]:
-    arguments = ["--go"]
-    if address is not None:
-        arguments.append(address)
-    return arguments
+    return cube_programmer_adapter.build_go_arguments(address)
 
 
 def run_cli_command(command: list[str], timeout_seconds: int) -> dict[str, object]:
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
-        stdout = completed.stdout.strip()
-        stderr = completed.stderr.strip()
-        return {
-            "success": completed.returncode == 0,
-            "exit_code": completed.returncode,
-            "command": command,
-            "stdout": stdout,
-            "stderr": stderr,
-        }
-    except FileNotFoundError as exc:
-        return {
-            "success": False,
-            "exit_code": -2,
-            "command": command,
-            "stdout": "",
-            "stderr": str(exc),
-        }
-    except subprocess.TimeoutExpired as exc:
-        stdout = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
-        stderr = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
-        timeout_message = f"Command timed out after {timeout_seconds} seconds."
-        return {
-            "success": False,
-            "exit_code": -1,
-            "command": command,
-            "stdout": stdout,
-            "stderr": f"{stderr}\n{timeout_message}".strip(),
-        }
+    return cube_programmer_adapter.run_cli_command(
+        command,
+        timeout_seconds=timeout_seconds,
+        subprocess_module=subprocess,
+    )
 
 
 def llm_recovery_enabled() -> bool:

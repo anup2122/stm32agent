@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from stm32cubep_mcp import server
+from stm32cubep_mcp.cube_programmer import server
 
 
 class ResolveCliPathTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class ResolveCliPathTests(unittest.TestCase):
 
     def test_raises_when_cli_is_missing(self) -> None:
         with patch(
-            "stm32cubep_mcp.server.discover_cube_programmer",
+            "stm32cubep_mcp.cube_programmer.server.discover_cube_programmer",
             return_value={
                 "resolved_path": None,
                 "checked_candidates": [{"path": r"C:\missing\tool.exe", "exists": False, "source": "environment"}],
@@ -57,7 +57,7 @@ class ResolveCliPathTests(unittest.TestCase):
             )
 
             with patch.dict(os.environ, {"STM32_TOOLS_LOCAL_JSON": str(config_path)}, clear=False):
-                with patch("stm32cubep_mcp.server.shutil.which", return_value=None):
+                with patch("stm32cubep_mcp.cube_programmer.server.shutil.which", return_value=None):
                     self.assertEqual(server.resolve_cli_path(), str(fake_cli))
 
 
@@ -331,7 +331,7 @@ class CommandArgumentBuilderTests(unittest.TestCase):
 
 
 class CommandExecutionTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
     def test_run_cli_command_returns_success_result(self, subprocess_run: object) -> None:
         subprocess_run.return_value = subprocess.CompletedProcess(
             args=["tool", "--version"],
@@ -346,7 +346,7 @@ class CommandExecutionTests(unittest.TestCase):
         self.assertEqual(result["stdout"], "ok")
         self.assertEqual(result["exit_code"], 0)
 
-    @patch("stm32cubep_mcp.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
     def test_run_cli_command_returns_timeout_result(self, subprocess_run: object) -> None:
         subprocess_run.side_effect = subprocess.TimeoutExpired(
             cmd=["tool", "--version"],
@@ -362,7 +362,7 @@ class CommandExecutionTests(unittest.TestCase):
         self.assertIn("timed out", result["stderr"])
         self.assertEqual(result["stdout"], "partial output")
 
-    @patch("stm32cubep_mcp.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
     def test_run_cli_command_returns_missing_executable_result(self, subprocess_run: object) -> None:
         subprocess_run.side_effect = FileNotFoundError("missing executable")
 
@@ -404,8 +404,8 @@ class LoggingTests(unittest.TestCase):
 
 
 class RetryExecutionTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
-    @patch("stm32cubep_mcp.server.run_cli_command")
+    @patch("stm32cubep_mcp.cube_programmer.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
+    @patch("stm32cubep_mcp.cube_programmer.server.run_cli_command")
     def test_execute_with_retry_marks_used_defaults_false_when_overridden(self, run_cli_command: object, _resolve_cli_path: object) -> None:
         run_cli_command.return_value = {
             "success": True,
@@ -430,8 +430,8 @@ class RetryExecutionTests(unittest.TestCase):
         self.assertFalse(result["used_defaults"])
         self.assertEqual(result["connect_parameters"]["port"], "JTAG")
 
-    @patch("stm32cubep_mcp.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
-    @patch("stm32cubep_mcp.server.run_cli_command")
+    @patch("stm32cubep_mcp.cube_programmer.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
+    @patch("stm32cubep_mcp.cube_programmer.server.run_cli_command")
     def test_execute_global_command_records_failure(self, run_cli_command: object, _resolve_cli_path: object) -> None:
         run_cli_command.return_value = {
             "success": False,
@@ -463,7 +463,7 @@ class DiscoveryAndCapabilitiesTests(unittest.TestCase):
             fake_cli.write_text("stub", encoding="utf-8")
 
             with patch.dict(os.environ, {"STM32_PROGRAMMER_CLI_PATH": str(fake_cli)}, clear=False):
-                with patch("stm32cubep_mcp.server.shutil.which", return_value=None):
+                with patch("stm32cubep_mcp.cube_programmer.server.shutil.which", return_value=None):
                     result = server.discover_cube_programmer()
 
         self.assertEqual(result["resolved_path"], str(fake_cli))
@@ -496,14 +496,14 @@ class DiscoveryAndCapabilitiesTests(unittest.TestCase):
                 {"STM32_TOOLS_LOCAL_JSON": str(config_path), "STM32_PROGRAMMER_CLI_PATH": ""},
                 clear=False,
             ):
-                with patch("stm32cubep_mcp.server.shutil.which", return_value=None):
+                with patch("stm32cubep_mcp.cube_programmer.server.shutil.which", return_value=None):
                     result = server.discover_cube_programmer()
 
         self.assertEqual(result["resolved_path"], str(fake_cli))
         self.assertEqual(result["resolution_source"], "config")
 
-    @patch("stm32cubep_mcp.server.collect_host_tool_discovery")
-    @patch("stm32cubep_mcp.server.run_cli_command")
+    @patch("stm32cubep_mcp.cube_programmer.server.collect_host_tool_discovery")
+    @patch("stm32cubep_mcp.cube_programmer.server.run_cli_command")
     def test_collect_host_capabilities_turns_off_device_flows_when_version_probe_fails(
         self,
         run_cli_command: object,
@@ -538,14 +538,14 @@ class DiscoveryAndCapabilitiesTests(unittest.TestCase):
         self.assertFalse(result["capabilities"]["flash"])
         self.assertTrue(result["capabilities"]["project_metadata_loaded"])
 
-    @patch("stm32cubep_mcp.server.collect_host_capabilities", return_value={"capabilities": {"flash": True}})
+    @patch("stm32cubep_mcp.cube_programmer.server.collect_host_capabilities", return_value={"capabilities": {"flash": True}})
     def test_stm32_report_host_capabilities_routes_to_collector(self, collect_host_capabilities: object) -> None:
         result = server.stm32_report_host_capabilities(timeout_seconds=6)
 
         collect_host_capabilities.assert_called_once_with(timeout_seconds=6)
         self.assertTrue(result["capabilities"]["flash"])
 
-    @patch("stm32cubep_mcp.server.collect_host_tool_discovery", return_value={"tools": {"cube_programmer": {}}})
+    @patch("stm32cubep_mcp.cube_programmer.server.collect_host_tool_discovery", return_value={"tools": {"cube_programmer": {}}})
     def test_stm32_discover_host_tools_routes_to_collector(self, collect_host_tool_discovery: object) -> None:
         result = server.stm32_discover_host_tools()
 
@@ -570,7 +570,7 @@ class MismatchDetectionTests(unittest.TestCase):
         self.assertEqual(mismatch["firmware_families"], ["F103"])
         self.assertEqual(mismatch["attached_families"], ["L476"])
 
-    @patch("stm32cubep_mcp.server.execute_connected_operation")
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation")
     def test_apply_runtime_target_check_turns_success_into_mismatch_failure(self, execute_connected_operation: object) -> None:
         execute_connected_operation.return_value = {
             "success": True,
@@ -600,7 +600,7 @@ class MismatchDetectionTests(unittest.TestCase):
         self.assertEqual(checked["message"], "this does not match to the attached target")
         self.assertIn("target_mismatch", checked)
 
-    @patch("stm32cubep_mcp.server.execute_connected_operation")
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation")
     def test_apply_runtime_target_check_resumes_core_after_halted_status_probe(self, execute_connected_operation: object) -> None:
         execute_connected_operation.side_effect = [
             {
@@ -640,14 +640,14 @@ class MismatchDetectionTests(unittest.TestCase):
 
 
 class ToolWrapperTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.execute_connect", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connect", return_value={"success": True})
     def test_connect_to_attached_stm32_device_routes_to_execute_connect(self, execute_connect: object) -> None:
         result = asyncio.run(server.connect_to_attached_stm32_device(timeout_seconds=11))
 
         execute_connect.assert_called_once_with(timeout_seconds=11)
         self.assertTrue(result["success"])
 
-    @patch("stm32cubep_mcp.server.execute_global_command", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_global_command", return_value={"success": True})
     def test_stm32_list_interfaces_builds_expected_global_command(self, execute_global_command: object) -> None:
         server.stm32_list_interfaces(interface="stlink-only", shared=True, timeout_seconds=7)
 
@@ -660,8 +660,8 @@ class ToolWrapperTests(unittest.TestCase):
             failure_message="Unable to list STM32 communication interfaces.",
         )
 
-    @patch("stm32cubep_mcp.server.apply_runtime_target_check", return_value={"success": True})
-    @patch("stm32cubep_mcp.server.execute_connected_operation", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.apply_runtime_target_check", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation", return_value={"success": True})
     def test_stm32_download_routes_to_connected_operation(
         self,
         execute_connected_operation: object,
@@ -695,8 +695,8 @@ class ToolWrapperTests(unittest.TestCase):
         )
         apply_runtime_target_check.assert_called_once()
 
-    @patch("stm32cubep_mcp.server.apply_runtime_target_check", return_value={"success": True})
-    @patch("stm32cubep_mcp.server.execute_connected_operation", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.apply_runtime_target_check", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation", return_value={"success": True})
     def test_stm32_flash_firmware_routes_to_connected_operation(
         self,
         execute_connected_operation: object,
@@ -727,8 +727,8 @@ class ToolWrapperTests(unittest.TestCase):
         )
         apply_runtime_target_check.assert_called_once()
 
-    @patch("stm32cubep_mcp.server.apply_runtime_target_check", return_value={"success": True})
-    @patch("stm32cubep_mcp.server.execute_connected_operation", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.apply_runtime_target_check", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation", return_value={"success": True})
     def test_stm32_flash_firmware_applies_runtime_target_check(
         self,
         execute_connected_operation: object,
@@ -742,7 +742,7 @@ class ToolWrapperTests(unittest.TestCase):
 
         apply_runtime_target_check.assert_called_once()
 
-    @patch("stm32cubep_mcp.server.execute_connected_operation", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation", return_value={"success": True})
     def test_stm32_reset_uses_requested_reset_kind(self, execute_connected_operation: object) -> None:
         asyncio.run(server.stm32_reset(reset_kind="hardware", timeout_seconds=22))
 
@@ -757,8 +757,8 @@ class ToolWrapperTests(unittest.TestCase):
             reset="SWrst",
         )
 
-    @patch("stm32cubep_mcp.server.execute_connected_operation", return_value={"success": True})
-    @patch("stm32cubep_mcp.server.execute_global_command", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_connected_operation", return_value={"success": True})
+    @patch("stm32cubep_mcp.cube_programmer.server.execute_global_command", return_value={"success": True})
     def test_stm32_custom_command_switches_between_connected_and_global_modes(
         self,
         execute_global_command: object,
@@ -801,7 +801,7 @@ class LlmRecoveryTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             server.parse_recovery_suggestion('{"action":"erase_everything"}', server.RECOVERY_CONNECTED_ACTIONS)
 
-    @patch("stm32cubep_mcp.server.request_llm_recovery_step", new_callable=AsyncMock)
+    @patch("stm32cubep_mcp.cube_programmer.server.request_llm_recovery_step", new_callable=AsyncMock)
     async def test_maybe_run_llm_recovery_resolves_on_retry(self, request_llm_recovery_step: AsyncMock) -> None:
         request_llm_recovery_step.return_value = {
             "summary": "retry with lower speed",
@@ -844,7 +844,7 @@ class LlmRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["llm_recovery"]["status"], "resolved")
         self.assertEqual(result["connect_parameters"]["frequency_khz"], 1000)
 
-    @patch("stm32cubep_mcp.server.request_llm_recovery_step", new_callable=AsyncMock)
+    @patch("stm32cubep_mcp.cube_programmer.server.request_llm_recovery_step", new_callable=AsyncMock)
     async def test_maybe_run_llm_recovery_stops_and_asks_user(self, request_llm_recovery_step: AsyncMock) -> None:
         request_llm_recovery_step.return_value = {
             "summary": "manual intervention required",
@@ -879,7 +879,7 @@ class LlmRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["llm_recovery"]["status"], "ask_user")
         self.assertIn("Check target power", result["message"])
 
-    @patch("stm32cubep_mcp.server.request_llm_recovery_step", new_callable=AsyncMock)
+    @patch("stm32cubep_mcp.cube_programmer.server.request_llm_recovery_step", new_callable=AsyncMock)
     async def test_maybe_run_llm_recovery_handles_sampling_unavailable(self, request_llm_recovery_step: AsyncMock) -> None:
         request_llm_recovery_step.side_effect = RuntimeError("sampling unavailable")
 

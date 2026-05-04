@@ -64,12 +64,13 @@ $checks.Add((New-Check "project_config" (Test-Path $projectConfigPath) $projectC
 
 if (Test-Path $venvPython) {
     $importOk = Test-CommandSuccess {
-        & $venvPython -c "import stm32cubep_mcp.server, stm32cubep_mcp.orchestrator.server, stm32cubep_mcp.build.server, stm32cubep_mcp.debug.server, stm32cubep_mcp.cubemx.server"
+        & $venvPython -c "import stm32cubep_mcp.cube_programmer.server, stm32cubep_mcp.orchestrator.server, stm32cubep_mcp.build.server, stm32cubep_mcp.debug.server, stm32cubep_mcp.cubemx.server"
     }
     $checks.Add((New-Check "python_imports" $importOk "Import programmer, orchestrator, build, debug, and cubemx servers"))
 
     $entrypoints = @(
         "stm32cubep-mcp.exe",
+        "stm32cubeprogrammer-mcp.exe",
         "stm32-orchestrator-mcp.exe",
         "stm32-build-mcp.exe",
         "stm32-debug-mcp.exe",

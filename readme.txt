@@ -205,8 +205,8 @@ The opposite of waterfall development is Agile development. While waterfall is l
 Resume the STM32 Agent Toolchain project and start CubeMX agent Part 1.
 
 Before changing code, read:
-- design.md
-- stm32-agent-toolchain-plan.md
+- docs/design.md
+- docs/stm32-agent-toolchain-plan.md
 - src/stm32cubep_mcp/cubemx/server.py
 
 Constraints:
@@ -229,10 +229,10 @@ Do not attempt freeform requirement decomposition yet.
 
 Today’s work is in a resumable state.
 
-CubeMX Part 1 backend is implemented and validated, the design handoff is captured in design.md, and the repo memory now records the real host findings: CubeMX is available through the bundled JAR plus bundled Java in CubeIDE, but the current configured project tree still does not resolve an IOC file. The next concrete step for tomorrow is to point stm32-project.json at the actual `.ioc` file and then run the first real regeneration-validation cycle.
+CubeMX Part 1 backend is implemented and validated, the design handoff is captured in docs/design.md, and the repo memory now records the real host findings: CubeMX is available through the bundled JAR plus bundled Java in CubeIDE, but the current configured project tree still does not resolve an IOC file. The next concrete step for tomorrow is to point stm32-project.json at the actual `.ioc` file and then run the first real regeneration-validation cycle.
 
 To resume cleanly tomorrow, use:
-`Resume the STM32 Agent Toolchain project and continue CubeMX work from design.md and the current CubeMX Part 1 implementation.`
+`Resume the STM32 Agent Toolchain project and continue CubeMX work from docs/design.md and the current CubeMX Part 1 implementation.`
 
 the folder C:\agent_dev_v1\mcp-server-stm32cubep\NUCLEO-L476RG-UART2-printf has ioc file and also the code generated from this ioc. 
 your task:

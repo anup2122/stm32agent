@@ -1,3 +1,47 @@
+"""STM32 debug MCP server.
+
+This module owns runtime inspection and managed debug-session control. It sits
+beside the programmer server: the programmer server handles CLI connect/flash
+operations, while this server manages ST-LINK GDB server processes, ARM GDB
+batch commands, SVD-backed register decoding, and structured runtime snapshots.
+
+Exact managed launch chain:
+
+`stm32_debug_launch(...)`
+-> `resolve_stlink_gdb_server_path()`
+-> `resolve_swo_launch_port(...)` and `select_launch_ports(...)`
+-> `build_stlink_gdb_server_command(...)`
+-> `subprocess.Popen(...)`
+-> wait until `is_tcp_port_open(...)` reports readiness
+-> store `DebugSession` in `ACTIVE_DEBUG_SESSIONS`
+-> return session summary plus log paths
+
+Exact one-shot GDB inspection chain:
+
+`stm32_debug_run_gdb_commands(...)` or `stm32_debug_snapshot(...)`
+-> resolve active `DebugSession`
+-> `run_gdb_batch(...)`
+-> `build_gdb_batch_command(...)`
+-> `run_debug_command(...)`
+-> optional parsing such as `parse_register_output(...)` or
+    `parse_section_lines(...)`
+-> structured MCP result payload
+
+Exact peripheral-inspection chain:
+
+`stm32_debug_inspect_peripheral(...)`
+-> `inspect_peripheral_registers_from_svd(...)`
+-> `resolve_svd_path()`
+-> `parse_svd_device(...)`
+-> `run_gdb_batch(...)` to read live register values
+-> SVD-aware decoding into peripheral/register fields
+-> structured inspection result
+
+The architectural boundary here is deliberate: this module does not decide
+whether a project should be built, flashed, or regenerated. It assumes a target
+is already prepared and focuses on live runtime observability.
+"""
+
 from __future__ import annotations
 
 import atexit
@@ -17,26 +61,15 @@ from mcp.server.fastmcp import FastMCP
 
 from .. import shared
 from ..build import server as build_server
+from ..tools import arm_gdb_adapter, stlink_gdb_adapter
 
 mcp = FastMCP("stm32debug")
 
-DEFAULT_STLINK_GDB_SERVER_ENV_VAR = "STM32_STLINK_GDB_SERVER_PATH"
-DEFAULT_ARM_GDB_ENV_VAR = "STM32_ARM_GDB_PATH"
+DEFAULT_STLINK_GDB_SERVER_ENV_VAR = stlink_gdb_adapter.DEFAULT_STLINK_GDB_SERVER_ENV_VAR
+DEFAULT_ARM_GDB_ENV_VAR = arm_gdb_adapter.DEFAULT_ARM_GDB_ENV_VAR
 DEFAULT_SVD_PATH_ENV_VAR = "STM32_SVD_PATH"
-DEFAULT_STLINK_GDB_SERVER_CANDIDATES = {
-    "windows": [
-        r"C:\ST\STM32CubeIDE_1.14.1\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.stlink-gdb-server.win32_2.2.300.202509021040\tools\bin\ST-LINK_gdbserver.exe",
-    ],
-    "linux": ["ST-LINK_gdbserver"],
-    "darwin": ["ST-LINK_gdbserver"],
-}
-DEFAULT_ARM_GDB_CANDIDATES = {
-    "windows": [
-        r"C:\ST\STM32CubeIDE_1.14.1\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.win32_12.3.rel1\tools\bin\arm-none-eabi-gdb.exe",
-    ],
-    "linux": ["arm-none-eabi-gdb"],
-    "darwin": ["arm-none-eabi-gdb"],
-}
+DEFAULT_STLINK_GDB_SERVER_CANDIDATES = stlink_gdb_adapter.DEFAULT_STLINK_GDB_SERVER_CANDIDATES
+DEFAULT_ARM_GDB_CANDIDATES = arm_gdb_adapter.DEFAULT_ARM_GDB_CANDIDATES
 ACTIVE_DEBUG_SESSIONS: dict[str, "DebugSession"] = {}
 SVD_CACHE: dict[str, dict[str, object]] = {}
 STM32L4_RCC_BASE = 0x40021000
@@ -674,229 +707,53 @@ def arm_gdb_tool_entry() -> dict[str, object]:
 
 
 def default_stlink_gdb_server_executable_name() -> str:
-    return "ST-LINK_gdbserver.exe" if shared.host_platform_name() == "windows" else "ST-LINK_gdbserver"
+    return stlink_gdb_adapter.default_stlink_gdb_server_executable_name(shared.host_platform_name())
 
 
 def default_arm_gdb_executable_name() -> str:
-    return "arm-none-eabi-gdb.exe" if shared.host_platform_name() == "windows" else "arm-none-eabi-gdb"
+    return arm_gdb_adapter.default_arm_gdb_executable_name(shared.host_platform_name())
 
 
 def derive_stlink_gdb_server_candidates() -> list[Path]:
-    try:
-        cubeide_path = Path(build_server.resolve_cubeide_path()).resolve()
-    except FileNotFoundError:
-        return []
-
-    cubeide_root = cubeide_path.parent
-    executable_name = default_stlink_gdb_server_executable_name()
-    plugin_candidates = sorted(
-        cubeide_root.glob("plugins/com.st.stm32cube.ide.mcu.externaltools.stlink-gdb-server*/tools/bin/*")
+    return stlink_gdb_adapter.derive_stlink_gdb_server_candidates(
+        resolve_cubeide_path=build_server.resolve_cubeide_path,
+        host_platform=shared.host_platform_name(),
     )
-    return [candidate for candidate in plugin_candidates if candidate.name.lower() == executable_name.lower()]
 
 
 def derive_arm_gdb_candidates() -> list[Path]:
-    try:
-        cubeide_path = Path(build_server.resolve_cubeide_path()).resolve()
-    except FileNotFoundError:
-        return []
-
-    cubeide_root = cubeide_path.parent
-    executable_name = default_arm_gdb_executable_name()
-    plugin_candidates = sorted(
-        cubeide_root.glob("plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32*/tools/bin/*")
+    return arm_gdb_adapter.derive_arm_gdb_candidates(
+        resolve_cubeide_path=build_server.resolve_cubeide_path,
+        host_platform=shared.host_platform_name(),
     )
-    return [candidate for candidate in plugin_candidates if candidate.name.lower() == executable_name.lower()]
 
 
 def discover_stlink_gdb_server() -> dict[str, object]:
-    host_platform = shared.host_platform_name()
-    tools_config = shared.load_tools_local_config()
-    config_data = tools_config.get("data")
-    tool_entry: dict[str, object] = {}
-
-    if isinstance(config_data, dict):
-        tools = config_data.get("tools")
-        if isinstance(tools, dict):
-            stlink_gdb_server = tools.get("stlink_gdb_server")
-            if isinstance(stlink_gdb_server, dict):
-                tool_entry = stlink_gdb_server
-
-    env_var = str(tool_entry.get("env_var") or DEFAULT_STLINK_GDB_SERVER_ENV_VAR)
-    executable_name = str(tool_entry.get("executable_name") or default_stlink_gdb_server_executable_name())
-    config_path = Path(str(tools_config["path"])) if isinstance(tools_config.get("path"), str) else None
-    checked_candidates: list[dict[str, object]] = []
-    seen_paths: set[str] = set()
-    resolved_path: str | None = None
-    resolution_source: str | None = None
-
-    def record_candidate(path_value: Path | str, source: str) -> None:
-        nonlocal resolved_path, resolution_source
-
-        path_text = str(path_value)
-        normalized = os.path.normcase(path_text)
-        if normalized in seen_paths:
-            return
-        seen_paths.add(normalized)
-
-        candidate_path = Path(path_text)
-        exists = candidate_path.is_file()
-        checked_candidates.append(
-            {
-                "path": path_text,
-                "exists": exists,
-                "source": source,
-            }
-        )
-        if exists and resolved_path is None:
-            resolved_path = path_text
-            resolution_source = source
-
-    env_candidate = os.environ.get(env_var)
-    if env_candidate:
-        record_candidate(Path(env_candidate).expanduser(), "environment")
-
-    config_candidates = tool_entry.get("candidates")
-    if isinstance(config_candidates, dict):
-        platform_candidates = config_candidates.get(host_platform)
-        if isinstance(platform_candidates, list):
-            for candidate in platform_candidates:
-                if isinstance(candidate, str) and candidate.strip():
-                    record_candidate(shared.resolve_candidate_path(candidate, base_path=config_path), "config")
-
-    which_result = shutil.which(executable_name)
-    if which_result:
-        record_candidate(which_result, "path")
-
-    for candidate in derive_stlink_gdb_server_candidates():
-        record_candidate(candidate, "cubeide_plugin")
-
-    for candidate in DEFAULT_STLINK_GDB_SERVER_CANDIDATES.get(host_platform, []):
-        record_candidate(Path(candidate), "default")
-
-    return {
-        "tool": "stlink_gdb_server",
-        "host_platform": host_platform,
-        "env_var": env_var,
-        "path_hint": executable_name,
-        "config_path": tools_config.get("path"),
-        "config_status": tools_config.get("status"),
-        "config_error": "; ".join(str(error) for error in tools_config.get("errors", [])) or None,
-        "resolved_path": resolved_path,
-        "resolution_source": resolution_source,
-        "checked_candidates": checked_candidates,
-    }
+    return stlink_gdb_adapter.discover_stlink_gdb_server(
+        host_platform=shared.host_platform_name(),
+        load_tools_local_config=shared.load_tools_local_config,
+        resolve_candidate_path=shared.resolve_candidate_path,
+        resolve_cubeide_path=build_server.resolve_cubeide_path,
+        which_resolver=shutil.which,
+    )
 
 
 def discover_arm_gdb() -> dict[str, object]:
-    host_platform = shared.host_platform_name()
-    tools_config = shared.load_tools_local_config()
-    config_data = tools_config.get("data")
-    tool_entry: dict[str, object] = {}
-
-    if isinstance(config_data, dict):
-        tools = config_data.get("tools")
-        if isinstance(tools, dict):
-            configured_arm_gdb = tools.get("arm_gdb")
-            if isinstance(configured_arm_gdb, dict):
-                tool_entry = configured_arm_gdb
-
-    env_var = str(tool_entry.get("env_var") or DEFAULT_ARM_GDB_ENV_VAR)
-    executable_name = str(tool_entry.get("executable_name") or default_arm_gdb_executable_name())
-    config_path = Path(str(tools_config["path"])) if isinstance(tools_config.get("path"), str) else None
-    checked_candidates: list[dict[str, object]] = []
-    seen_paths: set[str] = set()
-    resolved_path: str | None = None
-    resolution_source: str | None = None
-
-    def record_candidate(path_value: Path | str, source: str) -> None:
-        nonlocal resolved_path, resolution_source
-
-        path_text = str(path_value)
-        normalized = os.path.normcase(path_text)
-        if normalized in seen_paths:
-            return
-        seen_paths.add(normalized)
-
-        candidate_path = Path(path_text)
-        exists = candidate_path.is_file()
-        checked_candidates.append(
-            {
-                "path": path_text,
-                "exists": exists,
-                "source": source,
-            }
-        )
-        if exists and resolved_path is None:
-            resolved_path = path_text
-            resolution_source = source
-
-    env_candidate = os.environ.get(env_var)
-    if env_candidate:
-        record_candidate(Path(env_candidate).expanduser(), "environment")
-
-    config_candidates = tool_entry.get("candidates")
-    if isinstance(config_candidates, dict):
-        platform_candidates = config_candidates.get(host_platform)
-        if isinstance(platform_candidates, list):
-            for candidate in platform_candidates:
-                if isinstance(candidate, str) and candidate.strip():
-                    record_candidate(shared.resolve_candidate_path(candidate, base_path=config_path), "config")
-
-    which_result = shutil.which(executable_name)
-    if which_result:
-        record_candidate(which_result, "path")
-
-    for candidate in derive_arm_gdb_candidates():
-        record_candidate(candidate, "cubeide_plugin")
-
-    for candidate in DEFAULT_ARM_GDB_CANDIDATES.get(host_platform, []):
-        record_candidate(Path(candidate), "default")
-
-    return {
-        "tool": "arm_gdb",
-        "host_platform": host_platform,
-        "env_var": env_var,
-        "path_hint": executable_name,
-        "config_path": tools_config.get("path"),
-        "config_status": tools_config.get("status"),
-        "config_error": "; ".join(str(error) for error in tools_config.get("errors", [])) or None,
-        "resolved_path": resolved_path,
-        "resolution_source": resolution_source,
-        "checked_candidates": checked_candidates,
-    }
+    return arm_gdb_adapter.discover_arm_gdb(
+        host_platform=shared.host_platform_name(),
+        load_tools_local_config=shared.load_tools_local_config,
+        resolve_candidate_path=shared.resolve_candidate_path,
+        resolve_cubeide_path=build_server.resolve_cubeide_path,
+        which_resolver=shutil.which,
+    )
 
 
 def resolve_stlink_gdb_server_path() -> str:
-    discovery = discover_stlink_gdb_server()
-    tool_path = discovery.get("resolved_path")
-    if isinstance(tool_path, str) and Path(tool_path).is_file():
-        return tool_path
-
-    checked_paths = [str(candidate["path"]) for candidate in discovery.get("checked_candidates", [])]
-    checked_suffix = f" Checked: {checked_paths}." if checked_paths else ""
-    env_var = str(discovery.get("env_var") or DEFAULT_STLINK_GDB_SERVER_ENV_VAR)
-    raise FileNotFoundError(
-        "ST-LINK GDB server executable was not found. Set "
-        f"{env_var}, add ST-LINK_gdbserver to PATH, or update config/stm32-tools.local.json."
-        f"{checked_suffix}"
-    )
+    return stlink_gdb_adapter.resolve_stlink_gdb_server_path(discover_stlink_gdb_server())
 
 
 def resolve_arm_gdb_path() -> str:
-    discovery = discover_arm_gdb()
-    tool_path = discovery.get("resolved_path")
-    if isinstance(tool_path, str) and Path(tool_path).is_file():
-        return tool_path
-
-    checked_paths = [str(candidate["path"]) for candidate in discovery.get("checked_candidates", [])]
-    checked_suffix = f" Checked: {checked_paths}." if checked_paths else ""
-    env_var = str(discovery.get("env_var") or DEFAULT_ARM_GDB_ENV_VAR)
-    raise FileNotFoundError(
-        "ARM GDB executable was not found. Set "
-        f"{env_var}, add arm-none-eabi-gdb to PATH, or update config/stm32-tools.local.json."
-        f"{checked_suffix}"
-    )
+    return arm_gdb_adapter.resolve_arm_gdb_path(discover_arm_gdb())
 
 
 def parse_debug_server_version(stdout: str) -> str | None:
@@ -917,37 +774,11 @@ def parse_gdb_version(stdout: str) -> str | None:
 
 
 def run_debug_command(command: list[str], timeout_seconds: int) -> dict[str, object]:
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
-        return {
-            "success": completed.returncode == 0,
-            "exit_code": completed.returncode,
-            "command": command,
-            "stdout": completed.stdout.strip(),
-            "stderr": completed.stderr.strip(),
-        }
-    except FileNotFoundError as exc:
-        return {
-            "success": False,
-            "exit_code": -2,
-            "command": command,
-            "stdout": "",
-            "stderr": str(exc),
-        }
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "success": False,
-            "exit_code": -1,
-            "command": command,
-            "stdout": (exc.stdout or "").strip() if isinstance(exc.stdout, str) else "",
-            "stderr": ((exc.stderr or "").strip() if isinstance(exc.stderr, str) else "") or f"Command timed out after {timeout_seconds} seconds.",
-        }
+    return stlink_gdb_adapter.run_debug_command(
+        command,
+        timeout_seconds=timeout_seconds,
+        subprocess_module=subprocess,
+    )
 
 
 def parse_register_output(stdout: str) -> dict[str, str]:
@@ -1170,23 +1001,12 @@ def compute_stm32l4_clock_tree(rcc_values: dict[str, int], peripheral: str) -> d
 
 
 def build_gdb_batch_command(gdb_path: str, *, elf_path: str | None, port_number: int, commands: list[str]) -> list[str]:
-    command = [
+    return arm_gdb_adapter.build_gdb_batch_command(
         gdb_path,
-        "--quiet",
-        "--batch",
-    ]
-    if isinstance(elf_path, str) and elf_path.strip() and Path(elf_path).is_file():
-        command.append(elf_path)
-    command.extend([
-        "-ex",
-        "set pagination off",
-        "-ex",
-        f"target extended-remote :{port_number}",
-    ])
-    for gdb_command in commands:
-        command.extend(["-ex", gdb_command])
-    command.extend(["-ex", "disconnect", "-ex", "quit"])
-    return command
+        elf_path=elf_path,
+        port_number=port_number,
+        commands=commands,
+    )
 
 
 def run_gdb_batch(*, session: DebugSession, commands: list[str], timeout_seconds: int) -> dict[str, object]:
@@ -1484,45 +1304,42 @@ def build_stlink_gdb_server_command(
     cube_programmer_path: str | None = None,
     frequency_khz: int | None = None,
     halt: bool = False,
+    incremental: bool = False,
 ) -> list[str]:
-    command = [tool_path, "-p", str(port_number), "-f", str(server_log_path)]
-    if persistent:
-        command.append("-e")
-    if log_level is not None:
-        command.extend(["-l", str(log_level)])
-    if verbose:
-        command.append("-v")
-    if refresh_delay is not None:
-        command.extend(["-r", str(refresh_delay)])
-    if verify:
-        command.append("-s")
-    if swd:
-        command.append("-d")
-    if swo_port is not None:
-        command.extend(["-z", str(swo_port)])
-    if cpu_clock_hz is not None:
-        command.extend(["-a", str(cpu_clock_hz)])
-    if swo_clock_div is not None:
-        command.extend(["-b", str(swo_clock_div)])
-    if initialize_reset:
-        command.append("-k")
-    if serial_number:
-        command.extend(["-i", serial_number])
-    if apid is not None:
-        command.extend(["-m", str(apid)])
-    if attach:
-        command.append("-g")
-    if shared_mode:
-        command.append("-t")
-    if erase_all:
-        command.append("--erase-all")
-    if cube_programmer_path:
-        command.extend(["-cp", cube_programmer_path])
-    if frequency_khz is not None:
-        command.extend(["--frequency", str(frequency_khz)])
-    if halt:
-        command.append("--halt")
-    return command
+    return stlink_gdb_adapter.build_stlink_gdb_server_command(
+        tool_path,
+        port_number=port_number,
+        persistent=persistent,
+        server_log_path=server_log_path,
+        log_level=log_level,
+        verbose=verbose,
+        refresh_delay=refresh_delay,
+        verify=verify,
+        swd=swd,
+        swo_port=swo_port,
+        cpu_clock_hz=cpu_clock_hz,
+        swo_clock_div=swo_clock_div,
+        initialize_reset=initialize_reset,
+        serial_number=serial_number,
+        apid=apid,
+        attach=attach,
+        shared_mode=shared_mode,
+        erase_all=erase_all,
+        cube_programmer_path=cube_programmer_path,
+        frequency_khz=frequency_khz,
+        halt=halt,
+        incremental=incremental,
+    )
+
+
+def launch_stlink_gdb_server_process(command: list[str], *, output_handle: TextIO) -> subprocess.Popen[str]:
+    return stlink_gdb_adapter.launch_stlink_gdb_server_process(
+        command,
+        output_handle=output_handle,
+        working_directory=str(Path.cwd()),
+        host_platform=shared.host_platform_name(),
+        subprocess_module=subprocess,
+    )
 
 
 def collect_debug_capabilities() -> dict[str, object]:
@@ -1535,11 +1352,11 @@ def collect_debug_capabilities() -> dict[str, object]:
     gdb_version_text: str | None = None
     resolved_path = discovery.get("resolved_path")
     if isinstance(resolved_path, str):
-        version_result = run_debug_command([resolved_path, "--version"], 10)
+        version_result = run_debug_command(stlink_gdb_adapter.build_stlink_gdb_server_version_command(resolved_path), 10)
         version_text = parse_debug_server_version(str(version_result.get("stdout", "")))
     resolved_gdb_path = gdb_discovery.get("resolved_path")
     if isinstance(resolved_gdb_path, str):
-        gdb_version_result = run_debug_command([resolved_gdb_path, "--version"], 10)
+        gdb_version_result = run_debug_command(arm_gdb_adapter.build_gdb_version_command(resolved_gdb_path), 10)
         gdb_version_text = parse_gdb_version(str(gdb_version_result.get("stdout", "")))
     try:
         svd_path = resolve_svd_path()
@@ -1596,7 +1413,7 @@ def stm32_debug_server_version(timeout_seconds: int = 10) -> dict[str, object]:
             "message": str(exc),
         }
 
-    result = run_debug_command([tool_path, "--version"], timeout_seconds)
+    result = run_debug_command(stlink_gdb_adapter.build_stlink_gdb_server_version_command(tool_path), timeout_seconds)
     result.update(
         {
             "implemented": True,
@@ -1622,7 +1439,7 @@ def stm32_debug_gdb_version(timeout_seconds: int = 10) -> dict[str, object]:
             "message": str(exc),
         }
 
-    result = run_debug_command([tool_path, "--version"], timeout_seconds)
+    result = run_debug_command(arm_gdb_adapter.build_gdb_version_command(tool_path), timeout_seconds)
     result.update(
         {
             "implemented": True,
@@ -1648,11 +1465,11 @@ def stm32_debug_list_debuggers(timeout_seconds: int = 10) -> dict[str, object]:
             "message": str(exc),
         }
 
-    command = [tool_path]
     cube_programmer_path = resolve_cube_programmer_installation_path()
-    if cube_programmer_path:
-        command.extend(["-cp", cube_programmer_path])
-    command.append("-q")
+    command = stlink_gdb_adapter.build_list_debuggers_command(
+        tool_path,
+        cube_programmer_path=cube_programmer_path,
+    )
     result = run_debug_command(command, timeout_seconds)
     result.update(
         {
@@ -1753,22 +1570,16 @@ def stm32_debug_launch(
         cube_programmer_path=resolve_cube_programmer_installation_path(),
         frequency_khz=resolved_frequency,
         halt=halt,
+        incremental=incremental,
     )
-    if incremental:
-        command.append("--incremental")
 
     console_log_path = shared.create_log_path("stlink_gdbserver_console")
     output_handle = console_log_path.open("w", encoding="utf-8")
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if shared.host_platform_name() == "windows" else 0
 
     try:
-        process = subprocess.Popen(
+        process = launch_stlink_gdb_server_process(
             command,
-            stdout=output_handle,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=str(Path.cwd()),
-            creationflags=creationflags,
+            output_handle=output_handle,
         )
     except OSError as exc:
         output_handle.close()

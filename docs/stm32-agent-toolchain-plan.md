@@ -76,7 +76,7 @@ Current saved state:
 
 - Shared config now lives under `config/` and is owned by the orchestration layer.
 - Implemented domain servers:
-	- STM32CubeProgrammer MCP in `src/stm32cubep_mcp/server.py`
+	- STM32CubeProgrammer MCP in `src/stm32cubep_mcp/cube_programmer/server.py`
 	- CubeIDE Build MCP in `src/stm32cubep_mcp/build/server.py`
 - Partially implemented domain servers:
 	- Debug MCP in `src/stm32cubep_mcp/debug/server.py` with ST-LINK GDB server discovery, version, debugger listing, launch, status, and stop support

@@ -1,3 +1,39 @@
+"""STM32CubeMX MCP server.
+
+This module is the concrete CubeMX-domain entrypoint. It owns IOC discovery,
+IOC parsing, CubeMX launcher resolution, deterministic regeneration, and the
+optional handoff into the build server for post-generation validation.
+
+Exact IOC inspection chain:
+
+`stm32_cubemx_parse_ioc(...)`
+-> `cubemx_tool_service.parse_cubemx_ioc(...)`
+-> `discover_ioc_path(...)`
+-> `parse_ioc_properties(...)`
+-> `summarize_ioc(...)`
+-> structured IOC summary payload
+
+Exact regeneration chain in this module:
+
+`stm32_cubemx_regenerate_project(...)`
+-> `regenerate_project_internal(...)`
+-> `cubemx_tool_service.regenerate_cubemx_project(...)`
+-> `resolve_cubemx_project_inputs(...)`
+-> `resolve_cubemx_launcher()`
+-> `resolve_generation_root(...)`
+-> `build_cubemx_script(...)`
+-> `run_cubemx_command(...)`
+-> `wait_for_completion_markers(...)`
+-> `diff_tree_state(...)` and `collect_output_review(...)`
+-> optional `build_server.stm32_build_project(...)`
+-> `write_cubemx_log(...)`
+-> structured regeneration result payload
+
+This server is intentionally narrower than the orchestrator. It assumes the IOC
+already exists or can be resolved from project metadata and focuses on turning
+that IOC into generated project files with traceable logs.
+"""
+
 from __future__ import annotations
 
 import subprocess

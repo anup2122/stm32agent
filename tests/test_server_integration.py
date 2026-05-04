@@ -5,7 +5,7 @@ import os
 import unittest
 from pathlib import Path
 
-from stm32cubep_mcp import server
+from stm32cubep_mcp.cube_programmer import server
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FIRMWARE_PATH = WORKSPACE_ROOT / "UART_ReceptionToIdle_CircularDMA.axf"

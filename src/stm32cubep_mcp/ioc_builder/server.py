@@ -1,3 +1,45 @@
+"""Deterministic IOC builder MCP server.
+
+This module is the MCP-facing entrypoint for the IOC synthesis stage. It sits
+between the requirements contract and CubeMX regeneration by compiling a
+validated contract into deterministic IOC operations and applying them to a
+managed IOC file.
+
+Exact planning chain:
+
+`stm32_ioc_builder_plan(contract)`
+-> `ioc_builder_service.compile_ioc_plan(...)`
+-> `synthesize_ioc_change_set(contract)`
+-> structured IOC operation plan payload
+
+Exact apply chain:
+
+`stm32_ioc_builder_apply(contract, ioc_path=None)`
+-> `apply_ioc_change_set(...)`
+-> `ioc_builder_service.apply_ioc_change_set(...)`
+-> `synthesize_ioc_change_set(...)`
+-> `resolve_ioc_path(...)`
+-> `ioc_mutator.apply_ioc_operations(...)`
+-> `validate_ioc_with_cubemx(...)`
+-> structured applied-IOC result payload
+
+Exact construct chain:
+
+`stm32_ioc_builder_construct(...)`
+-> `construct_ioc_file(...)`
+-> `ioc_builder_service.construct_ioc_file(...)`
+-> `load_base_ioc_lines(...)`
+-> `apply_project_manager_defaults(...)`
+-> `ioc_mutator.apply_ioc_operations(...)`
+-> `validate_constructed_ioc_lines(...)`
+-> `validate_ioc_with_cubemx(...)`
+-> structured constructed-IOC result payload
+
+The architectural boundary is that this server owns deterministic IOC planning
+and mutation, but not prompt interpretation or code generation. Those live in
+the requirements and CubeMX layers respectively.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

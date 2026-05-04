@@ -7,11 +7,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from stm32cubep_mcp import server
+from stm32cubep_mcp.cube_programmer import server
 
 
 class BuildConnectCommandTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
+    @patch("stm32cubep_mcp.cube_programmer.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
     def test_builds_expected_swd_command(self, _resolve_cli_path: object) -> None:
         command = server.build_connect_command(
             port="SWD",
@@ -74,8 +74,8 @@ class FallbackAttemptTests(unittest.TestCase):
 
 
 class ExecuteConnectTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.build_connect_command")
-    @patch("stm32cubep_mcp.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.build_connect_command")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
     def test_returns_first_successful_attempt(self, subprocess_run: object, build_connect_command: object) -> None:
         build_connect_command.side_effect = lambda **kwargs: ["tool", "--connect", f"mode={kwargs['mode']}"]
         subprocess_run.side_effect = [
@@ -93,8 +93,8 @@ class ExecuteConnectTests(unittest.TestCase):
         self.assertEqual(result["stdout"], "connected")
         self.assertEqual(len(result["attempts"]), 2)
 
-    @patch("stm32cubep_mcp.server.build_connect_command")
-    @patch("stm32cubep_mcp.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.build_connect_command")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
     def test_returns_failure_message_after_all_attempts_fail(self, subprocess_run: object, build_connect_command: object) -> None:
         build_connect_command.side_effect = lambda **kwargs: ["tool", "--connect", f"mode={kwargs['mode']}"]
         subprocess_run.side_effect = [
@@ -116,8 +116,8 @@ class ExecuteConnectTests(unittest.TestCase):
 
 
 class ExecuteGlobalCommandTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.subprocess.run")
-    @patch("stm32cubep_mcp.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
     def test_returns_version_result(self, _resolve_cli_path: object, subprocess_run: object) -> None:
         subprocess_run.return_value = subprocess.CompletedProcess(
             args=["tool", "--version"],
@@ -142,8 +142,8 @@ class ExecuteGlobalCommandTests(unittest.TestCase):
 
 
 class ExecuteConnectedOperationTests(unittest.TestCase):
-    @patch("stm32cubep_mcp.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
-    @patch("stm32cubep_mcp.server.subprocess.run")
+    @patch("stm32cubep_mcp.cube_programmer.server.resolve_cli_path", return_value=r"C:\tool\STM32_Programmer_CLI.exe")
+    @patch("stm32cubep_mcp.cube_programmer.server.subprocess.run")
     def test_combines_connect_and_action_arguments(self, subprocess_run: object, _resolve_cli_path: object) -> None:
         subprocess_run.return_value = subprocess.CompletedProcess(
             args=["tool"],

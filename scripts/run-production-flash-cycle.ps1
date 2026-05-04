@@ -14,7 +14,7 @@ if (-not (Test-Path $firmwarePath)) {
 
 Push-Location $workspaceRoot
 try {
-    & $venvPython -c "from stm32cubep_mcp.server import stm32_flash_firmware; import json; result = stm32_flash_firmware(file_path=r'$firmwarePath', timeout_seconds=300); print(json.dumps(result, indent=2))"
+    & $venvPython -c "from stm32cubep_mcp.cube_programmer.server import stm32_flash_firmware; import json; result = stm32_flash_firmware(file_path=r'$firmwarePath', timeout_seconds=300); print(json.dumps(result, indent=2))"
 }
 finally {
     Pop-Location

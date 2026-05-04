@@ -10,7 +10,7 @@ if (-not (Test-Path $venvPython)) {
 Push-Location $workspaceRoot
 try {
     & $venvPython -m unittest discover -s tests -v
-    & $venvPython -c "from stm32cubep_mcp.server import build_connect_command, build_download_arguments, stm32_discover_host_tools; from stm32cubep_mcp.orchestrator.server import orchestration_status; print(build_connect_command(port='SWD')); print(build_download_arguments('firmware.bin')); print(stm32_discover_host_tools()['host']); print(orchestration_status()['server'])"
+    & $venvPython -c "from stm32cubep_mcp.cube_programmer.server import build_connect_command, build_download_arguments, stm32_discover_host_tools; from stm32cubep_mcp.orchestrator.server import orchestration_status; print(build_connect_command(port='SWD')); print(build_download_arguments('firmware.bin')); print(stm32_discover_host_tools()['host']); print(orchestration_status()['server'])"
 }
 finally {
     Pop-Location

@@ -1,3 +1,46 @@
+"""Prompt-driven feature-delivery workflow.
+
+This module owns the longest orchestrated path in the application layer. It is
+called from ``orchestrator/server.py`` through this exact chain:
+
+``stm32_orchestrate_feature_prompt``
+-> ``run_feature_delivery_workflow``
+-> ``orchestrate_feature_delivery``
+
+Inside ``orchestrate_feature_delivery()``, the workflow proceeds in this order:
+
+1. Call ``requirements_decompose(prompt, persist_plan=True)`` to convert the
+    natural-language prompt into a deterministic requirements contract and plan
+    artifact.
+2. Call ``ensure_project_metadata_for_feature_contract(contract)`` to fill or
+    normalize ``stm32-project.json`` fields required for the downstream flow.
+3. Resolve the effective CubeMX request and derive the pending increments from
+    the contract and current plan state.
+4. For each pending increment, either:
+    - construct a managed IOC file with ``construct_ioc_file(...)`` when no
+      managed IOC exists yet, or
+    - apply a deterministic change set with ``apply_ioc_change_set(...)`` when
+      a managed IOC already exists.
+5. Regenerate the CubeMX project with ``regenerate_project_internal(...)`` or
+    reuse the CubeMX result already produced during IOC validation when possible.
+6. Build the regenerated project with ``build_project(...)``.
+7. Resolve the flash artifact with ``select_flash_artifact(...)``.
+8. Flash the artifact with ``flash_firmware(...)``.
+9. Optionally run post-flash runtime validation with
+    ``run_runtime_validation_stage_fn(...)``.
+
+Concrete tested prompt example:
+
+``I have attached STM32L476Rg Nucleo device. write a project that will send
+data from the device to pc and run and test it``
+
+For that prompt, the requirements layer produces a contract targeting
+``NUCLEO-L476RG`` with core feature ``core-uart-device-to-pc`` and first
+increment ``increment-core-001``. This workflow then materializes the IOC,
+regenerates the project, builds it, flashes it, and can continue into runtime
+validation according to the execution policy.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

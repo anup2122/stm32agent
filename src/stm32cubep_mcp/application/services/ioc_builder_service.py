@@ -1,3 +1,39 @@
+"""IOC builder application services.
+
+These functions are the application-layer bridge between a validated feature
+contract and the concrete IOC file mutations that CubeMX can consume later.
+
+Exact ``apply_ioc_change_set()`` chain:
+
+1. ``synthesize_ioc_change_set_fn(contract)`` produces a deterministic IOC plan.
+2. ``resolve_ioc_path_fn(ioc_path)`` resolves the target IOC file.
+3. The IOC file is loaded into ``lines``.
+4. ``_apply_plan_operations(...)`` converts the synthesized plan into concrete
+    IOC operations and calls ``apply_ioc_operations_fn(...)``.
+5. The mutated IOC content is written back to disk.
+6. ``validate_ioc_with_cubemx_fn(...)`` checks whether CubeMX accepts the
+    resulting IOC according to the execution policy.
+
+Exact ``construct_ioc_file()`` chain:
+
+1. ``synthesize_ioc_change_set_fn(contract)`` produces the deterministic plan.
+2. ``resolve_ioc_path_fn(ioc_path)`` resolves where the managed IOC file should
+    be created.
+3. ``load_base_ioc_lines_fn(...)`` fetches the starting IOC text, either from a
+    copied existing IOC, an official board baseline, or another configured base.
+4. ``apply_project_manager_defaults_fn(...)`` injects project/toolchain/MCU
+    defaults into the base IOC.
+5. ``_apply_plan_operations(...)`` mutates the IOC text with the synthesized
+    operations.
+6. ``validate_ioc_lines_fn(...)`` performs structural validation before write.
+7. The managed IOC file is written to disk.
+8. ``validate_ioc_with_cubemx_fn(...)`` performs CubeMX acceptance validation.
+
+Both paths return a rich result payload containing changed keys, used pins,
+enabled peripherals, the synthesized plan, and the CubeMX validation result so
+the calling workflow can decide whether to continue into regeneration.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

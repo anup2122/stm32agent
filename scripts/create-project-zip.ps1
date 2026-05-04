@@ -12,14 +12,12 @@ if (Test-Path $archivePath) {
 
 $pathsToArchive = @(
     (Join-Path $workspaceRoot "config"),
+    (Join-Path $workspaceRoot "docs"),
     (Join-Path $workspaceRoot ".vscode"),
     (Join-Path $workspaceRoot "scripts"),
     (Join-Path $workspaceRoot "src"),
     (Join-Path $workspaceRoot "tests"),
     (Join-Path $workspaceRoot "pyproject.toml"),
-    (Join-Path $workspaceRoot "QUICKSTART.md"),
-    (Join-Path $workspaceRoot "CHANGELOG.md"),
-    (Join-Path $workspaceRoot "README.md"),
     (Join-Path $workspaceRoot "readme.txt"),
     (Join-Path $workspaceRoot ".gitignore"),
     (Join-Path $workspaceRoot "UART_ReceptionToIdle_CircularDMA.axf"),
