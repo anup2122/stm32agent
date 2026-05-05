@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 
+# Choose the firmware artifact to flash by preferring an explicit prompt path, then the build output, then project defaults.
 def select_flash_artifact(
     build_result: dict[str, object],
     *,

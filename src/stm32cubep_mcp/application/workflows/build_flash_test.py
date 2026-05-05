@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 
+# Run the build-first test path, resolve the artifact to flash, and stop early when any stage fails.
 async def orchestrate_build_then_flash(
     *,
     target: str | None,

@@ -7,6 +7,7 @@ from .ioc_model import IocModel
 NUMBERED_KEY_PATTERN = re.compile(r"^(?P<prefix>Mcu\.(?:IP|Pin))(?P<index>\d+)$")
 
 
+# Parse IOC file lines into a flat property map while ignoring comments and blank lines.
 def parse_ioc_properties_from_lines(lines: list[str]) -> dict[str, str]:
     properties: dict[str, str] = {}
     for raw_line in lines:
@@ -19,6 +20,7 @@ def parse_ioc_properties_from_lines(lines: list[str]) -> dict[str, str]:
     return properties
 
 
+# Collect numbered IOC property values for a given prefix in ascending numeric order.
 def collect_numbered_values(properties: dict[str, str], prefix: str) -> list[str]:
     indexed_values: list[tuple[int, str]] = []
     for key, value in properties.items():
@@ -28,6 +30,7 @@ def collect_numbered_values(properties: dict[str, str], prefix: str) -> list[str
     return [value for _, value in sorted(indexed_values)]
 
 
+# Update or append one IOC property line and report whether the operation changed the file content.
 def upsert_property(lines: list[str], key: str, value: object) -> str:
     rendered = f"{key}={value}"
     for index, raw_line in enumerate(lines):
@@ -45,6 +48,7 @@ def upsert_property(lines: list[str], key: str, value: object) -> str:
     return "added"
 
 
+# Convert the compiled IOC model into the deterministic change set consumed by the IOC mutation engine.
 def synthesize_change_set_from_model(model: IocModel) -> dict[str, object]:
     ioc_properties: list[dict[str, object]] = [
         {"key": "Mcu.Name", "value": model.target_mcu},

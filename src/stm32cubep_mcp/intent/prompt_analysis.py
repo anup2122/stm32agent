@@ -81,6 +81,7 @@ def _contains_any_token(lowered: str, tokens: tuple[str, ...]) -> bool:
     return any(_contains_token(lowered, token) for token in tokens)
 
 
+# Extract the generic engineering-spec metadata that later stages use to classify and parameterize prompt details.
 def _extract_engineering_spec_metadata(prompt: str) -> dict[str, object]:
     hints = [match.group(0).upper() for match in GENERIC_ENGINEERING_HINT_PATTERN.finditer(prompt)]
     unique_hints: list[str] = []
@@ -99,6 +100,7 @@ def _extract_engineering_spec_metadata(prompt: str) -> dict[str, object]:
     }
 
 
+# Parse a frequency mention from the prompt and normalize it into hertz.
 def _frequency_hz_from_prompt(prompt: str) -> float | None:
     match = FREQUENCY_PATTERN.search(prompt)
     if match is None:
@@ -108,6 +110,7 @@ def _frequency_hz_from_prompt(prompt: str) -> float | None:
     return magnitude * 1000.0 if unit == "khz" else magnitude
 
 
+# Derive the structured engineering-spec detail fields that drive feature planning and IOC synthesis.
 def _engineering_spec_details(prompt: str, metadata: dict[str, object]) -> dict[str, object]:
     lowered = prompt.lower()
     timer_match = TIMER_INSTANCE_PATTERN.search(prompt)

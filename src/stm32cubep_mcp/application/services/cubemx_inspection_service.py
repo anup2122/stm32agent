@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable
 
 
+# Assemble a combined CubeMX capabilities report from tool discovery, IOC discovery, and shared configuration state.
 def build_cubemx_capabilities(
     *,
     discover_cubemx_fn: Callable[[], dict[str, object]],
@@ -31,6 +32,7 @@ def build_cubemx_capabilities(
     }
 
 
+# Resolve the target IOC file, fail clearly when none is available, and otherwise return its parsed summary.
 def parse_ioc_summary(
     *,
     ioc_path: str | None,

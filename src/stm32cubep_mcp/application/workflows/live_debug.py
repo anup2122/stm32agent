@@ -30,6 +30,7 @@ def debug_cleanup_timeout_seconds() -> int:
     return value if isinstance(value, int) and value > 0 else 10
 
 
+# Optionally reset the target, then launch and summarize a managed debug-server session.
 async def orchestrate_debug_session(
     *,
     session_name: str,
@@ -107,6 +108,7 @@ async def orchestrate_debug_session(
     }
 
 
+# Run the post-flash runtime-validation stage by launching a temporary debug session and updating plan state around it.
 async def run_runtime_validation_stage(
     *,
     plan_file: str | None,

@@ -168,6 +168,7 @@ def configured_mcu_name() -> str | None:
     return mcu_name.strip() if isinstance(mcu_name, str) and mcu_name.strip() else None
 
 
+# Derive the likely SVD filenames to try for a configured MCU, including common STM32 family fallback patterns.
 def candidate_svd_names(mcu_name: str) -> list[str]:
     normalized = mcu_name.strip().upper()
     if not normalized:
@@ -190,6 +191,7 @@ def candidate_svd_names(mcu_name: str) -> list[str]:
     return candidates
 
 
+# Build the ordered list of directories that may contain the MCU SVD file from env vars, project metadata, and default ST installs.
 def derive_svd_search_roots() -> list[Path]:
     roots: list[Path] = []
 
@@ -220,6 +222,7 @@ def derive_svd_search_roots() -> list[Path]:
     return roots
 
 
+# Resolve the effective SVD file path by preferring explicit configuration and then scanning derived MCU-specific candidates.
 def resolve_svd_path() -> str:
     env_path = os.environ.get(DEFAULT_SVD_PATH_ENV_VAR)
     if env_path:
@@ -252,6 +255,7 @@ def resolve_svd_path() -> str:
     )
 
 
+# Parse one SVD field definition, including bit placement and any enumerated symbolic values.
 def parse_svd_field(field_node: ET.Element) -> dict[str, object]:
     enumerated_values: dict[int, str] = {}
     for enum_node in field_node.findall("{*}enumeratedValues/{*}enumeratedValue"):
@@ -285,6 +289,7 @@ def parse_svd_field(field_node: ET.Element) -> dict[str, object]:
     }
 
 
+# Parse and cache an SVD device file, resolving derived peripherals and registers into a merged lookup structure.
 def parse_svd_device(path: str) -> dict[str, object]:
     cached = SVD_CACHE.get(path)
     if cached is not None:
@@ -389,6 +394,7 @@ def parse_svd_device(path: str) -> dict[str, object]:
     return parsed
 
 
+# Decode a raw register value into its named SVD field values and symbolic enum names when available.
 def decode_register_fields(register_value: int, register_definition: dict[str, object]) -> dict[str, dict[str, object]]:
     fields = register_definition.get("fields")
     if not isinstance(fields, dict):
@@ -419,6 +425,7 @@ def decode_register_fields(register_value: int, register_definition: dict[str, o
     return decoded
 
 
+# Map a peripheral name to its broader family so later question parsing can look for the right register fields.
 def peripheral_family_name(peripheral: str) -> str:
     normalized = normalize_uart_peripheral_name(peripheral)
     if normalized.startswith("USART") or normalized.startswith("UART"):
@@ -438,6 +445,7 @@ def peripheral_family_name(peripheral: str) -> str:
     return "other"
 
 
+# Extract a GPIO pin number from a natural-language question using either explicit pin syntax or compact port-pin forms.
 def extract_gpio_pin_number(question: str, peripheral: str) -> int | None:
     port_suffix = peripheral.strip().upper().replace("GPIO", "")[:1].lower()
     explicit_pin = re.search(r"\bpin\s*(1[0-5]|[0-9])\b", question)
@@ -450,6 +458,7 @@ def extract_gpio_pin_number(question: str, peripheral: str) -> int | None:
     return None
 
 
+# Infer which register fields are relevant to a natural-language peripheral question based on the peripheral family and keywords.
 def candidate_field_names(question: str, peripheral: str) -> list[str]:
     family = peripheral_family_name(peripheral)
     lowered = question.lower()
@@ -544,6 +553,7 @@ def format_register_value(register_name: str, register_data: dict[str, object]) 
     return f"{register_name} = {register_data.get('value')}"
 
 
+# Answer simple semantic peripheral questions by matching likely register fields and summarizing the live values that were read.
 def answer_semantic_peripheral_question(question: str, peripheral: str, registers: dict[str, object]) -> dict[str, object] | None:
     family = peripheral_family_name(peripheral)
     candidate_fields = candidate_field_names(question, peripheral)
@@ -615,6 +625,7 @@ def answer_semantic_peripheral_question(question: str, peripheral: str, register
     return {"answer": answer, "matches": matches}
 
 
+# Read the requested peripheral registers through GDB, decode them with SVD metadata, and return a structured live-register snapshot.
 def inspect_peripheral_registers_from_svd(
     *,
     session: DebugSession,
@@ -815,6 +826,7 @@ def run_debug_command(command: list[str], timeout_seconds: int) -> dict[str, obj
     )
 
 
+# Parse the register section from a GDB transcript into a simple register-name to value-text mapping.
 def parse_register_output(stdout: str) -> dict[str, str]:
     registers: dict[str, str] = {}
     in_registers = False
@@ -833,6 +845,7 @@ def parse_register_output(stdout: str) -> dict[str, str]:
     return registers
 
 
+# Extract the non-empty lines that belong to one named marker section in a GDB transcript.
 def parse_section_lines(stdout: str, section_name: str) -> list[str]:
     marker = f"=== {section_name} ==="
     collected: list[str] = []
@@ -849,6 +862,7 @@ def parse_section_lines(stdout: str, section_name: str) -> list[str]:
     return collected
 
 
+# Parse key-value lines from a named GDB transcript section into integer values.
 def parse_named_values(stdout: str, section_name: str) -> dict[str, int]:
     values: dict[str, int] = {}
     for line in parse_section_lines(stdout, section_name):
@@ -954,6 +968,7 @@ def estimate_baud_rate(clock_hz: int | None, *, brr: int, over8: bool) -> int | 
     return int(round(clock_hz / brr))
 
 
+# Reconstruct the STM32L4 clock tree relevant to a UART peripheral from live RCC register values.
 def compute_stm32l4_clock_tree(rcc_values: dict[str, int], peripheral: str) -> dict[str, object]:
     cr = rcc_values.get("RCC_CR", 0)
     cfgr = rcc_values.get("RCC_CFGR", 0)
@@ -1043,6 +1058,7 @@ def build_gdb_batch_command(gdb_path: str, *, elf_path: str | None, port_number:
     )
 
 
+# Resolve the GDB client and ELF context, run the batch command, and wrap the transcript with debug-session metadata.
 def run_gdb_batch(*, session: DebugSession, commands: list[str], timeout_seconds: int) -> dict[str, object]:
     elf_path = resolve_debug_elf_path()
 
@@ -1076,6 +1092,7 @@ def run_gdb_batch(*, session: DebugSession, commands: list[str], timeout_seconds
 
 
 @mcp.tool(description="Read live UART or USART configuration directly from the attached STM32 target through a managed debug session and estimate the active baud rate from peripheral registers.")
+# Read live UART peripheral and RCC state from the target and translate it into a human-meaningful UART configuration summary.
 def stm32_debug_uart_configuration(
     session_name: str | None = None,
     peripheral: str = "USART1",
@@ -1260,6 +1277,7 @@ def can_bind_tcp_port(port_number: int) -> bool:
     return True
 
 
+# Choose usable GDB and SWO ports, falling back to the configured port range when the preferred ports are busy.
 def select_launch_ports(preferred_port: int, preferred_swo_port: int | None) -> tuple[int, int | None, bool]:
     if can_bind_tcp_port(preferred_port) and (preferred_swo_port is None or preferred_swo_port == 0 or can_bind_tcp_port(preferred_swo_port)):
         return preferred_port, preferred_swo_port, False
@@ -1280,6 +1298,7 @@ def select_launch_ports(preferred_port: int, preferred_swo_port: int | None) -> 
     return preferred_port, preferred_swo_port, False
 
 
+# Summarize the current state of a managed debug session, including port health and recent log output.
 def active_session_summary(session: DebugSession) -> dict[str, object]:
     exit_code = session.process.poll()
     running = exit_code is None
@@ -1301,6 +1320,7 @@ def active_session_summary(session: DebugSession) -> dict[str, object]:
     }
 
 
+# Stop and forget one managed debug session, ensuring its process and file handles are cleaned up.
 def cleanup_session(session_name: str) -> None:
     session = ACTIVE_DEBUG_SESSIONS.pop(session_name, None)
     if session is None:
@@ -1314,6 +1334,7 @@ def cleanup_session(session_name: str) -> None:
     session.output_handle.close()
 
 
+# Stop every managed debug session during process shutdown or explicit cleanup flows.
 def cleanup_all_sessions() -> None:
     for session_name in list(ACTIVE_DEBUG_SESSIONS):
         cleanup_session(session_name)
@@ -1383,6 +1404,7 @@ def launch_stlink_gdb_server_process(command: list[str], *, output_handle: TextI
     )
 
 
+# Gather host tool discovery, version checks, SVD availability, and active sessions into one debug capability snapshot.
 def collect_debug_capabilities() -> dict[str, object]:
     debug_metadata = load_debug_metadata()
     discovery = discover_stlink_gdb_server()
@@ -1526,6 +1548,7 @@ def stm32_debug_list_debuggers(timeout_seconds: int = 10) -> dict[str, object]:
 
 
 @mcp.tool(description="Launch the STM32CubeIDE ST-LINK GDB server as a managed background session and return the listening port plus log paths.")
+# Launch or replace a managed ST-LINK GDB server session, wait for the port to become ready, and record session state.
 def stm32_debug_launch(
     session_name: str | None = None,
     port_number: int | None = None,

@@ -6,10 +6,51 @@ from typing import Literal
 WorkflowRoute = Literal["develop_agent", "cube_programmer", "build", "build_flash", "debug", "cubemx", "requirements", "unknown"]
 PromptMode = Literal["auto", "develop-agent", "firmware-delivery", "test-only", "inspect-only"]
 
-BUILD_PROMPT_TOKENS = ("build", "compile", "cubeide", "cmake", "make", "headlessbuild")
-FLASH_PROMPT_TOKENS = ("flash", "program", "download", "erase", "reset", "connect", "st-link", "verify")
-DEBUG_PROMPT_TOKENS = ("breakpoint", "gdb", "register", "snapshot", "debug", "attach", "uart", "usart", "baud", "peripheral", "gpio", "timer", "spi", "i2c", "adc", "rcc")
-FEATURE_PROMPT_TOKENS = ("write a project", "create project", "generate project", "send data", "transmit", "blink", "button")
+BUILD_PROMPT_TOKENS = (
+    "build", 
+    "compile", 
+    "cubeide", 
+    "cmake", 
+    "make", 
+    "headlessbuild"
+)
+FLASH_PROMPT_TOKENS = (
+    "flash", 
+    "program", 
+    "download", 
+    "erase", 
+    "reset", 
+    "connect", 
+    "st-link", 
+    "verify"
+)
+DEBUG_PROMPT_TOKENS = (
+    "breakpoint", 
+    "gdb", 
+    "register", 
+    "snapshot", 
+    "debug", 
+    "attach", 
+    "uart", 
+    "usart", 
+    "baud", 
+    "peripheral", 
+    "gpio", 
+    "timer", 
+    "spi", 
+    "i2c", 
+    "adc", 
+    "rcc"
+)
+FEATURE_PROMPT_TOKENS = (
+    "write a project", 
+    "create project", 
+    "generate project", 
+    "send data", 
+    "transmit", 
+    "blink", 
+    "button"
+)
 DEVELOP_AGENT_TOKENS = (
     "add feature",
     "add a feature",
@@ -35,6 +76,7 @@ FEATURE_SPEC_TOKENS = (
 PROMPT_MODE_PREFIX_PATTERN = re.compile(r"^\s*(develop-agent|firmware-delivery|test-only|inspect-only)\s*:\s*", re.IGNORECASE)
 
 
+# Normalize a requested prompt mode into one of the supported orchestrator routing modes.
 def normalize_prompt_mode(mode: str | None) -> PromptMode:
     if not isinstance(mode, str) or not mode.strip():
         return "auto"
@@ -44,6 +86,7 @@ def normalize_prompt_mode(mode: str | None) -> PromptMode:
     return "auto"
 
 
+# Split an optional routing-mode prefix from the prompt and return both the detected mode and the remaining prompt text.
 def split_prompt_mode_prefix(prompt: str) -> tuple[PromptMode | None, str]:
     match = PROMPT_MODE_PREFIX_PATTERN.match(prompt)
     if match is None:
@@ -55,6 +98,7 @@ def prompt_without_mode_prefix(prompt: str) -> str:
     return split_prompt_mode_prefix(prompt)[1]
 
 
+# Decide the effective routing mode by combining explicit mode input, inline mode prefixes, and prompt classification heuristics.
 def resolve_prompt_mode(prompt: str, requested_mode: str | None = "auto") -> PromptMode:
     normalized_mode = normalize_prompt_mode(requested_mode)
     if normalized_mode != "auto":
@@ -76,6 +120,7 @@ def resolve_prompt_mode(prompt: str, requested_mode: str | None = "auto") -> Pro
     return "develop-agent"
 
 
+# Classify a natural-language STM32 request into the workflow family that should handle it.
 def classify_prompt(prompt: str) -> WorkflowRoute:
     prompt = prompt_without_mode_prefix(prompt)
     lowered = prompt.strip().lower()
@@ -101,6 +146,7 @@ def classify_prompt(prompt: str) -> WorkflowRoute:
     return "unknown"
 
 
+# Extract an explicit file_path argument from a prompt when the user embeds one inline.
 def extract_file_path(prompt: str) -> str | None:
     match = re.search(r"file_path\s*=\s*([\S]+)", prompt)
     if match is None:
@@ -108,6 +154,7 @@ def extract_file_path(prompt: str) -> str | None:
     return match.group(1).strip('"\'')
 
 
+# Detect whether the prompt is phrased like a live inspection question rather than a build or generation command.
 def is_debug_question(prompt: str) -> bool:
     lowered = prompt.strip().lower()
     return any(token in lowered for token in ("what", "which", "show", "read", "inspect", "tell me"))

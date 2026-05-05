@@ -6,6 +6,7 @@ from typing import Callable
 from ...tools import cubemx_adapter
 
 
+# Read one named section from the loaded project metadata and return it only when it is shaped like a mapping.
 def project_section_metadata(
     section_name: str,
     *,
@@ -31,6 +32,7 @@ def load_cubemx_metadata(*, load_project_metadata_fn: Callable[[], dict[str, obj
     return project_section_metadata("cubemx", load_project_metadata_fn=load_project_metadata_fn)
 
 
+# Resolve the configured CubeMX log path into an absolute filesystem path when one is present.
 def configured_cubemx_log_path(
     *,
     load_cubemx_metadata_fn: Callable[[], dict[str, object]],

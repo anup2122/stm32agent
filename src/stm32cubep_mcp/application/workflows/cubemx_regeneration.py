@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Callable
 
 
+# Validate configured CubeMX metadata and invoke a standalone regeneration run with the resolved project inputs.
 def orchestrate_cubemx_regeneration(
     *,
     validate_build: bool,
@@ -79,6 +80,7 @@ def orchestrate_cubemx_regeneration(
     }
 
 
+# Execute the full CubeMX regeneration workflow, including script generation, host execution, output review, and optional build validation.
 def regenerate_project_workflow(
     *,
     ioc_path: str | None,

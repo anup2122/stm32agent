@@ -72,30 +72,7 @@ Suggested follow-up:
 - Add post-install verification for all referenced MCP entry points.
 - Fail the install if required launchers are missing.
 
-### 4. check-agent-ready.ps1 validates a launcher set that does not fully match the published MCP config
-
-Files:
-
-- `scripts/check-agent-ready.ps1`
-- `config/mcp.example.json`
-
-Problem:
-
-- The readiness script checks for `stm32cubep-mcp.exe`.
-- The published MCP config references `stm32cubeprogrammer-mcp.exe` for the programmer server.
-- This mismatch means readiness can be reported even when the configured client command is not present.
-
-Why this matters:
-
-- Readiness checks should validate the actual supported launch contract.
-- A green readiness result should mean the advertised client config is usable.
-
-Suggested follow-up:
-
-- Align readiness validation with `config/mcp.example.json`.
-- Consider deriving expected launcher names from one source of truth instead of duplicating them.
-
-### 5. smoke-test.ps1 can produce false-green results
+### 4. smoke-test.ps1 can produce false-green results
 
 File: `scripts/smoke-test.ps1`
 
@@ -114,7 +91,7 @@ Suggested follow-up:
 - Use the same native-command failure handling strategy as the installer.
 - Only print completion/success output after verified success.
 
-### 6. Infrastructure scripts need a clearer product-vs-dev contract
+### 5. Infrastructure scripts need a clearer product-vs-dev contract
 
 Files:
 

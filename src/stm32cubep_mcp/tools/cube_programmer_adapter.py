@@ -31,6 +31,7 @@ def default_cli_executable_name(host_platform: str) -> str:
     return "STM32_Programmer_CLI.exe" if host_platform == "windows" else "STM32_Programmer_CLI"
 
 
+# Discover STM32CubeProgrammer CLI candidates from environment, config, PATH, and platform defaults, then cache the result.
 def discover_cube_programmer(
     *,
     host_platform: str,
@@ -250,6 +251,7 @@ def build_go_arguments(address: str | None = None) -> list[str]:
     return arguments
 
 
+# Resolve the CLI path from discovery output and raise a detailed error that includes the checked locations when none worked.
 def resolve_cube_programmer_path(discovery: dict[str, object]) -> str:
     cli_path = discovery.get("resolved_path")
     if isinstance(cli_path, str) and Path(cli_path).is_file():
@@ -271,6 +273,7 @@ def resolve_cube_programmer_path(discovery: dict[str, object]) -> str:
     )
 
 
+# Run the STM32CubeProgrammer CLI and normalize success, missing-tool, and timeout outcomes into a consistent result shape.
 def run_cli_command(
     command: list[str],
     *,

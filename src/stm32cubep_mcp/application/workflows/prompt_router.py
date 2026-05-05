@@ -5,6 +5,7 @@ from typing import Awaitable, Callable
 from ..services.routing_service import PromptMode, WorkflowRoute
 
 
+# Route a user prompt into the correct orchestration workflow and return a normalized orchestrator response envelope.
 async def route_prompt(
     *,
     prompt: str,

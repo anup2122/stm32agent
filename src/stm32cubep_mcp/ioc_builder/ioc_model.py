@@ -34,6 +34,7 @@ def _append_unique(sequence: list[str], value: str) -> None:
         sequence.append(value)
 
 
+# Read the engineering-spec clock target from contract metadata and normalize it into hertz.
 def _engineering_clock_hz(contract: dict[str, object]) -> int | None:
     intent_metadata = contract.get("intent_metadata")
     if not isinstance(intent_metadata, dict):
@@ -47,6 +48,7 @@ def _engineering_clock_hz(contract: dict[str, object]) -> int | None:
     return int(float(clock_mhz) * 1_000_000)
 
 
+# Return the MCU pin candidates advertised for one signal name in the grouped CubeMX metadata.
 def _signal_pin_candidates(mcu_metadata: dict[str, object], signal_name: str) -> list[str]:
     signal_pins = mcu_metadata.get("signal_pins")
     if not isinstance(signal_pins, dict):
@@ -57,6 +59,7 @@ def _signal_pin_candidates(mcu_metadata: dict[str, object], signal_name: str) ->
     return [pin_name for pin_name in candidates if isinstance(pin_name, str) and pin_name.strip()]
 
 
+# Choose the best available pin candidate by preferring pins that are neither board-reserved nor already used.
 def _select_pin_candidate(
     candidates: list[str],
     *,
@@ -90,6 +93,7 @@ def _timer_channel_property_name(channel: int, *, complementary_output: bool) ->
     return f"Channel-{_timer_channel_mode_name(channel, complementary_output=complementary_output)}"
 
 
+# Derive the timer auto-reload period that best matches the requested output frequency and prescaler.
 def _derive_timer_period(clock_hz: int | None, frequency_hz: float | None, prescaler: int) -> int | None:
     if not isinstance(clock_hz, int) or clock_hz <= 0:
         return None
@@ -108,6 +112,7 @@ def _default_pwm_pulse(period: int | None) -> int | None:
     return int((75 * (period - 1)) / 100)
 
 
+# Merge IOC IP parameter lists while preserving order and removing duplicates.
 def _merge_ip_parameters(existing: object, additions: list[str]) -> str:
     merged: list[str] = []
     if isinstance(existing, str):
@@ -121,6 +126,7 @@ def _merge_ip_parameters(existing: object, additions: list[str]) -> str:
     return ",".join(merged)
 
 
+# Generate the RCC property block for the standard MSI-to-PLL baseline used by the synthesized IOC model.
 def _rcc_msi_pll_80mhz_properties(sysclk_hz: int | None) -> dict[str, object]:
     target_hz = sysclk_hz if isinstance(sysclk_hz, int) and sysclk_hz > 0 else 80_000_000
     vco_input_hz = 4_000_000
@@ -267,6 +273,7 @@ def _reset_counter_hex_value(raw_value: object) -> int | None:
     return None
 
 
+# Search the watchdog timing space for the closest WWDG settings that satisfy the requested timeout and refresh behavior.
 def _derive_wwdg_settings(
     *,
     clock_hz: int | None,
@@ -342,6 +349,7 @@ def _rtc_prescalers(clock_source: object) -> tuple[int, int]:
     return (127, 249)
 
 
+# Compile the contract, board profile, and MCU metadata into the deterministic IOC model used by later mutation stages.
 def build_ioc_model(
     contract: dict[str, object],
     board_profile: dict[str, object],

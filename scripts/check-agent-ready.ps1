@@ -69,7 +69,6 @@ if (Test-Path $venvPython) {
     $checks.Add((New-Check "python_imports" $importOk "Import programmer, orchestrator, build, debug, and cubemx servers"))
 
     $entrypoints = @(
-        "stm32cubep-mcp.exe",
         "stm32cubeprogrammer-mcp.exe",
         "stm32-orchestrator-mcp.exe",
         "stm32-build-mcp.exe",

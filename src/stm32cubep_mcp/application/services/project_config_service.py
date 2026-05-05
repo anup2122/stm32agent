@@ -8,6 +8,7 @@ from ... import shared
 from .workflow_state import contract_feature_ids
 
 
+# Read the runtime project defaults section from the shared runtime-defaults configuration.
 def _runtime_project_defaults() -> dict[str, object]:
     runtime_defaults = shared.load_runtime_defaults().get("data")
     if not isinstance(runtime_defaults, dict):
@@ -30,6 +31,7 @@ def configured_generated_projects_dir() -> Path:
     return Path("generated")
 
 
+# Normalize user-provided CubeMX toolchain labels into the canonical value expected by downstream generation flows.
 def normalize_cubemx_toolchain(value: object) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -71,6 +73,7 @@ def inferred_project_name(contract: dict[str, object]) -> str:
     return f"{board_id}-generated"
 
 
+# Resolve the effective CubeMX project toolchain from contract defaults and fall back to the standard IDE backend.
 def inferred_project_toolchain(contract: dict[str, object]) -> str:
     defaults = contract.get("defaults") if isinstance(contract.get("defaults"), dict) else {}
     configured = normalize_cubemx_toolchain(defaults.get("toolchain"))
@@ -98,6 +101,7 @@ def derived_project_paths(
     }
 
 
+# Merge prompt-derived project metadata into the persisted project config and force managed-project paths when the workflow requires them.
 def merge_project_metadata_with_prompt_fallback(
     project_config: dict[str, object],
     contract: dict[str, object],
@@ -186,6 +190,7 @@ def merge_project_metadata_with_prompt_fallback(
     return merged_data, autofilled_fields
 
 
+# Autofill missing project metadata needed for feature delivery, write updates to disk when needed, and reload the normalized config.
 def ensure_project_metadata_for_feature_contract(
     contract: dict[str, object],
     *,
@@ -214,6 +219,7 @@ def ensure_project_metadata_for_feature_contract(
     }
 
 
+# Rewrite the project metadata file into the compact canonical JSONC form and report whether the on-disk content changed.
 def normalize_project_config(
     *,
     write_changes: bool,
@@ -260,6 +266,7 @@ def normalize_project_config(
     }
 
 
+# Rewrite the tools-local metadata file into the canonical JSONC form and report whether the rendered content changed.
 def normalize_tools_local_config(
     *,
     write_changes: bool,
@@ -303,6 +310,7 @@ def normalize_tools_local_config(
     }
 
 
+# Extract the effective CubeMX regeneration inputs from shared project metadata and list any required fields that are still missing.
 def configured_cubemx_request(
     *,
     load_project_metadata: Callable[[], dict[str, object]],
@@ -357,6 +365,7 @@ def configured_cubemx_request(
     }
 
 
+# Resolve the default firmware artifact path from build metadata first and then from firmware metadata.
 def configured_firmware_artifact(*, load_project_metadata: Callable[[], dict[str, object]]) -> str | None:
     project_config = load_project_metadata()
     project_data = project_config.get("data")

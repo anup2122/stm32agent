@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
+# Write a structured CubeMX regeneration log that captures the script, process result, file changes, and optional validation summaries.
 def write_cubemx_log(
     log_path: Path,
     *,

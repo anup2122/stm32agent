@@ -31,6 +31,7 @@ def _board_id_from_filename(ioc_path: Path) -> str:
     return stem
 
 
+# Extract the minimal board-baseline catalog entry from a CubeMX board IOC file.
 def extract_board_entry(ioc_path: Path) -> BoardBaselineEntry:
     mcu_name: str | None = None
     for raw_line in ioc_path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -47,6 +48,7 @@ def extract_board_entry(ioc_path: Path) -> BoardBaselineEntry:
     )
 
 
+# Extract the MCU catalog entry from grouped CubeMX XML, including IP instances and signal-to-pin mappings.
 def extract_mcu_entry(xml_path: Path) -> McuCatalogEntry:
     root = ET.fromstring(xml_path.read_text(encoding="utf-8", errors="replace"))
     refname = str(root.attrib.get("RefName") or xml_path.stem)
@@ -104,6 +106,7 @@ def _family_key_from_config_name(filename: str) -> str | None:
     return match.group(1)
 
 
+# Build the cached CubeMX DB index by scanning board IOCs, MCU XML catalogs, family config files, and DMA LL mappings.
 def build_cubemx_db_index(db_root: str | Path | None = None, cache_root: str | Path | None = None) -> dict[str, object]:
     resolved_root = resolve_cubemx_db_root(db_root)
     if resolved_root is None or not resolved_root.is_dir():

@@ -6,6 +6,7 @@ from pathlib import Path
 from ...requirements_ioc_contract import list_contract_increments
 
 
+# Override the configured CubeMX IOC path with the latest managed IOC path when one is available.
 def with_effective_ioc_path(cubemx_request: dict[str, object], ioc_path: object) -> dict[str, object]:
     if not isinstance(ioc_path, str) or not ioc_path.strip():
         return dict(cubemx_request)
@@ -25,6 +26,7 @@ def ioc_plan_details(ioc_result: dict[str, object], mode: str) -> dict[str, obje
     return details
 
 
+# Collapse a detailed IOC validation result into a small summary shape for workflow responses and plan updates.
 def summarize_ioc_validation(ioc_result: dict[str, object], mode: str) -> dict[str, object] | None:
     cubemx_validation = ioc_result.get("cubemx_validation")
     if not isinstance(cubemx_validation, dict):
@@ -38,6 +40,7 @@ def summarize_ioc_validation(ioc_result: dict[str, object], mode: str) -> dict[s
     }
 
 
+# Reuse a successful CubeMX run from IOC validation only when it matches the expected project path for the current workflow step.
 def reusable_cubemx_result_from_ioc_validation(
     ioc_result: dict[str, object],
     effective_cubemx_request: dict[str, object],
@@ -60,6 +63,7 @@ def reusable_cubemx_result_from_ioc_validation(
     return cubemx_result
 
 
+# Extract the execution-policy fields that matter to orchestration decisions into a smaller summary payload.
 def summarize_execution_policy(contract: dict[str, object]) -> dict[str, object] | None:
     execution_policy = contract.get("execution_policy")
     if not isinstance(execution_policy, dict):
@@ -74,6 +78,7 @@ def summarize_execution_policy(contract: dict[str, object]) -> dict[str, object]
     }
 
 
+# Collect the feature ids referenced by the contract across both core and pluggable feature groups.
 def contract_feature_ids(contract: dict[str, object]) -> set[str]:
     feature_ids: set[str] = set()
     for key in ("core_features", "pluggable_features"):
@@ -89,6 +94,7 @@ def contract_feature_ids(contract: dict[str, object]) -> set[str]:
     return feature_ids
 
 
+# Build a lookup table from feature id to feature payload for all features present in the contract.
 def contract_feature_lookup(contract: dict[str, object]) -> dict[str, dict[str, object]]:
     features: dict[str, dict[str, object]] = {}
     for key in ("core_features", "pluggable_features"):
@@ -104,6 +110,7 @@ def contract_feature_lookup(contract: dict[str, object]) -> dict[str, dict[str, 
     return features
 
 
+# Return the contract's increment list, or fall back to the current increment when only one increment is present implicitly.
 def contract_increment_records(contract: dict[str, object]) -> list[dict[str, object]]:
     increments = list_contract_increments(contract)
     if increments:
@@ -115,6 +122,7 @@ def contract_increment_records(contract: dict[str, object]) -> list[dict[str, ob
     return []
 
 
+# Build a lookup table from interface-intent id to its payload for the intents referenced by the contract.
 def interface_intent_lookup(contract: dict[str, object]) -> dict[str, dict[str, object]]:
     intents = contract.get("interface_intents")
     lookup: dict[str, dict[str, object]] = {}
@@ -129,6 +137,7 @@ def interface_intent_lookup(contract: dict[str, object]) -> dict[str, dict[str, 
     return lookup
 
 
+# Narrow the full contract down to the features and interface intents needed for a single increment execution step.
 def contract_for_increment(contract: dict[str, object], increment: dict[str, object]) -> dict[str, object]:
     increment_feature_ids = increment.get("feature_ids")
     selected_feature_ids = (
@@ -180,6 +189,7 @@ def contract_for_increment(contract: dict[str, object], increment: dict[str, obj
     return increment_contract
 
 
+# Normalize raw persisted increment records into the canonical shape used by plan-state comparisons.
 def _coerce_increment_records(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         return []
@@ -216,6 +226,7 @@ def _coerce_increment_records(value: object) -> list[dict[str, object]]:
     return records
 
 
+# Determine which increments still need execution by preferring a matching persisted plan state over the raw contract increment list.
 def next_pending_increment(plan_state: dict[str, object] | None, contract: dict[str, object]) -> list[dict[str, object]]:
     contract_increments = contract_increment_records(contract)
     if isinstance(plan_state, dict):
@@ -225,6 +236,7 @@ def next_pending_increment(plan_state: dict[str, object] | None, contract: dict[
     return contract_increments
 
 
+# Check whether persisted increment records still describe the same increment identities as the current contract.
 def _increment_identity_matches(plan_increments: list[dict[str, object]], contract_increments: list[dict[str, object]]) -> bool:
     if len(plan_increments) != len(contract_increments):
         return False

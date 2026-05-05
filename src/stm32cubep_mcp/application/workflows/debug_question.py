@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Awaitable, Callable
 
 
+# Ensure a live debug session is available and then answer an inspection-style question against the target.
 async def orchestrate_debug_question(
     *,
     prompt: str,

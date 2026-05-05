@@ -51,7 +51,6 @@ For a fuller operator guide, direct-tool examples, and debug-oriented flows, see
 
 - `config/`: shared host and project configuration for the full STM32 workflow
 - [src/stm32cubep_mcp/cube_programmer/server.py](src/stm32cubep_mcp/cube_programmer/server.py): STM32CubeProgrammer MCP server implementation
-- [src/stm32cubep_mcp/server.py](src/stm32cubep_mcp/server.py): legacy compatibility stub that is no longer used as an MCP entrypoint
 - [src/stm32cubep_mcp/build/](src/stm32cubep_mcp/build/): CubeIDE Build MCP server
 - [src/stm32cubep_mcp/debug/](src/stm32cubep_mcp/debug/): ST-LINK GDB server Phase 1 MCP
 - [src/stm32cubep_mcp/cubemx/](src/stm32cubep_mcp/cubemx/): dummy CubeMX MCP server scaffold

@@ -340,6 +340,7 @@ def summarize_config_status(config_result: dict[str, object]) -> dict[str, objec
     }
 
 
+# Gather host, schema, configuration, and tool-discovery details into the baseline programmer-host snapshot.
 def collect_host_tool_discovery() -> dict[str, object]:
     tools_config = load_tools_local_config()
     project_metadata = shared.load_project_metadata()
@@ -370,6 +371,7 @@ def parse_programmer_version(stdout: str) -> str | None:
     return None
 
 
+# Enrich tool discovery with CLI version checks and capability flags that reflect both tool presence and runnable state.
 def collect_host_capabilities(timeout_seconds: int = 10) -> dict[str, object]:
     discovery = collect_host_tool_discovery()
     cube_programmer = dict(discovery["tools"]["cube_programmer"])
@@ -438,6 +440,7 @@ def create_log_path(prefix: str) -> Path:
     return log_directory() / f"{prefix}_{timestamp}.log"
 
 
+# Build the ordered sequence of fallback connection attempts by overlaying caller overrides onto the standard retry profiles.
 def build_fallback_attempts(overrides: dict[str, object]) -> list[dict[str, object]]:
     defaults = default_connect_settings()
     fallback_attempts: list[dict[str, object]] = [

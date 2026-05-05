@@ -658,8 +658,50 @@ def heartbeat_plan_status(
 
 def read_plan_status(plan_file: str) -> dict[str, object]:
     return plan_service.read_plan_status(plan_file)
+"""
+I’m pulling the exact line range around the function so I can explain its behavior with concrete references instead of paraphrasing the whole file.
 
+Read [](file:///c%3A/agent_dev_v1/mcp-server-stm32cubep/src/stm32cubep_mcp/requirements/server.py#650-650), lines 650 to 710
 
+server.py is the prompt-to-contract assembler for the requirements server. It takes one freeform STM32 prompt string and turns it into the deterministic contract object that the rest of the workflow uses.
+
+At a high level, it does six things:
+
+1. It detects the hardware target from the prompt by calling `detect_target(prompt)`, which gives it `board_id` and `mcu`.
+2. It analyzes the prompt intent with `build_intent_bundle(prompt)`, then converts that bundle into the older normalized structure with `legacy_requirements_dict_from_intent_bundle(...)`.
+3. From that normalized structure it extracts the main planning inputs: `core_features`, `pluggable_features`, `interface_intents`, `assumptions`, and `open_questions`.
+4. It detects project context with `detect_project_context(prompt)`, so the contract knows whether this looks like a new project, existing IOC-backed project, and so on.
+5. If no board or MCU was recognized, it does not fail immediately. Instead, it appends an open question, substitutes `"unknown"` placeholders, and keeps building a contract anyway.
+6. It derives delivery increments with `build_feature_increments(...)`, picks the current increment with `current_increment_from_increments(...)`, and then calls `make_contract(...)` to assemble the final structured contract.
+
+The important output shape is created in the `make_contract(...)` call inside server.py. That is where the function packages:
+- the original prompt
+- target board and MCU
+- project context
+- core and pluggable features
+- interface intents
+- defaults such as toolchain and project style
+- execution policy
+- assumptions and open questions
+- the default plan file path
+
+One useful detail is that this function is intentionally permissive. It tries to produce a contract even for partial or weakly recognized prompts. That is why it inserts `"unknown"` target values and adds an open question instead of throwing an error. Validation is deferred to the caller. In this module, that caller is `stm32_requirements_decompose(...)`, which runs `validate_contract(contract)` after this function returns.
+
+What it does not do:
+- it does not validate the contract
+- it does not persist a plan artifact
+- it does not decide success/failure for the tool result
+
+Those happen one layer up in the MCP tool function after server.py returns.
+
+A simple mental model is:
+
+`prompt -> target detection + intent extraction + project context -> feature increments -> make_contract(...) -> contract dict`
+
+If you want, I can also walk through this function line by line using one concrete prompt example and show the exact intermediate values it would produce.
+"""
+
+# Assemble the deterministic requirements contract from prompt-derived target, intent, project-context, and increment data.
 def build_requirements_contract(prompt: str) -> dict[str, object]:
     board_id, mcu = detect_target(prompt)
     intent_bundle = build_intent_bundle(prompt)
@@ -707,6 +749,7 @@ def has_supported_delivery_increments(contract: dict[str, object]) -> bool:
     return bool(list_contract_increments(contract)) and bool(contract.get("increments"))
 
 
+# Report the current requirements agent scope, contract version, and planning-related capability notes.
 def collect_requirements_capabilities() -> dict[str, object]:
     return {
         "server": "requirements",
@@ -728,7 +771,15 @@ def stm32_requirements_capabilities() -> dict[str, object]:
     return collect_requirements_capabilities()
 
 
+"""
+Anup: critical. 
+
+This is the main tool function that clients call to convert a freeform STM32 prompt into a structured deterministic contract for IOC synthesis. The contract it produces is the main output of Phase 2 and the main input to the IOC builder workflow. The success of this function determines whether the rest of the workflow can run or not, so it's critical that it produces a valid contract for supported prompts and fails gracefully for unsupported prompts.
+
+"""
+
 @mcp.tool(description="Convert a supported STM32 feature prompt into the first deterministic contract consumed by the IOC Synthesis Agent.")
+# Convert a prompt into a validated requirements-tool result and optionally persist the plan artifact when requested.
 def stm32_requirements_decompose(prompt: str, persist_plan: bool = False) -> dict[str, object]:
     contract = build_requirements_contract(prompt)
     validation_errors = validate_contract(contract)

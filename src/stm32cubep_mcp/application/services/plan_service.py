@@ -17,6 +17,7 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Resolve a plan artifact path relative to the current workspace when the caller provides a non-absolute location.
 def resolve_plan_path(plan_file: str) -> Path:
     candidate = Path(plan_file).expanduser()
     if candidate.is_absolute():
@@ -24,6 +25,7 @@ def resolve_plan_path(plan_file: str) -> Path:
     return (Path.cwd() / candidate).resolve()
 
 
+# Select the current delivery increment, or synthesize a placeholder when no increments were recognized.
 def current_increment_from_increments(increments: list[dict[str, object]]) -> dict[str, object]:
     if increments:
         return dict(increments[0])
@@ -37,6 +39,7 @@ def current_increment_from_increments(increments: list[dict[str, object]]) -> di
     }
 
 
+# Seed per-increment execution records that the workflow plan will update over time.
 def initial_increment_records(contract: dict[str, object]) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for increment in list_contract_increments(contract):
@@ -56,6 +59,7 @@ def initial_increment_records(contract: dict[str, object]) -> list[dict[str, obj
     return records
 
 
+# Normalize persisted increment state into the canonical record shape used by plan updates and summaries.
 def coerce_increment_records(value: object) -> list[dict[str, object]]:
     plan_state = plan_state_from_legacy_artifact({"increments": value} if isinstance(value, list) else {"increments": []})
     records: list[dict[str, object]] = []
@@ -66,6 +70,7 @@ def coerce_increment_records(value: object) -> list[dict[str, object]]:
     return records
 
 
+# Recompute the active increment and completed or failed increment summaries from the current increment records.
 def sync_increment_summary_fields(artifact: dict[str, object]) -> None:
     records = coerce_increment_records(artifact.get("increments"))
     artifact["increments"] = records
@@ -99,6 +104,7 @@ def sync_increment_summary_fields(artifact: dict[str, object]) -> None:
     ]
 
 
+# Decide whether an existing persisted plan still matches the new contract closely enough to resume prior progress.
 def can_resume_existing_plan(existing: dict[str, object], contract: dict[str, object]) -> bool:
     if not isinstance(existing, dict):
         return False
@@ -124,6 +130,7 @@ def can_resume_existing_plan(existing: dict[str, object], contract: dict[str, ob
     return True
 
 
+# Merge a compatible persisted plan into the newly generated contract artifact while preserving reusable increment progress.
 def merge_existing_plan_artifact(existing: dict[str, object], contract: dict[str, object]) -> dict[str, object]:
     artifact = initial_plan_artifact(contract)
     if not can_resume_existing_plan(existing, contract):
@@ -170,6 +177,7 @@ def merge_existing_plan_artifact(existing: dict[str, object], contract: dict[str
     return artifact
 
 
+# Guard completed increment progress from being preserved when the persisted completion message no longer matches the current increment title.
 def _can_preserve_increment_progress(record: dict[str, object], existing_record: dict[str, object]) -> bool:
     if existing_record.get("status") != "completed":
         return True
@@ -185,6 +193,7 @@ def _can_preserve_increment_progress(record: dict[str, object], existing_record:
     return title in last_message
 
 
+# Update the tracked execution state for one increment and refresh the plan-wide increment summary fields.
 def update_increment_record(
     artifact: dict[str, object],
     *,
@@ -224,6 +233,7 @@ def update_increment_record(
     sync_increment_summary_fields(artifact)
 
 
+# Build the initial normalized workflow plan artifact from a validated requirements contract.
 def initial_plan_artifact(contract: dict[str, object]) -> dict[str, object]:
     created_at = utc_now_iso()
     increments = initial_increment_records(contract)
@@ -269,6 +279,7 @@ def initial_plan_artifact(contract: dict[str, object]) -> dict[str, object]:
     return legacy_artifact_from_plan_state(plan_state_from_legacy_artifact(artifact))
 
 
+# Render the normalized plan artifact as human-readable Markdown with embedded machine-readable JSON state.
 def render_plan_markdown(artifact: dict[str, object]) -> str:
     normalized = legacy_artifact_from_plan_state(plan_state_from_legacy_artifact(artifact))
     target = normalized.get("target") if isinstance(normalized.get("target"), dict) else {}
@@ -352,6 +363,7 @@ def render_plan_markdown(artifact: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+# Extract the embedded JSON state payload from a Markdown plan artifact and normalize it into the legacy artifact shape.
 def parse_plan_markdown(text: str) -> dict[str, object]:
     start_index = text.find(PLAN_STATE_START)
     end_index = text.find(PLAN_STATE_END)
@@ -366,6 +378,7 @@ def parse_plan_markdown(text: str) -> dict[str, object]:
     return legacy_artifact_from_plan_state(plan_state_from_legacy_artifact(json.loads(payload)))
 
 
+# Serialize a plan artifact in the correct on-disk format based on the plan file extension.
 def serialize_plan_artifact(plan_path: Path, artifact: dict[str, object]) -> str:
     normalized = legacy_artifact_from_plan_state(plan_state_from_legacy_artifact(artifact))
     if plan_path.suffix.lower() == ".md":
@@ -373,12 +386,14 @@ def serialize_plan_artifact(plan_path: Path, artifact: dict[str, object]) -> str
     return json.dumps(normalized, indent=2)
 
 
+# Deserialize a persisted plan artifact from either Markdown-with-embedded-state or raw JSON form.
 def deserialize_plan_artifact(plan_path: Path, text: str) -> dict[str, object]:
     if plan_path.suffix.lower() == ".md":
         return parse_plan_markdown(text)
     return legacy_artifact_from_plan_state(plan_state_from_legacy_artifact(json.loads(text)))
 
 
+# Write a plan artifact atomically so readers do not observe partially written workflow state.
 def write_plan_artifact(plan_path: Path, artifact: dict[str, object]) -> None:
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = plan_path.with_name(f"{plan_path.name}.tmp")
@@ -386,6 +401,7 @@ def write_plan_artifact(plan_path: Path, artifact: dict[str, object]) -> None:
     os.replace(temp_path, plan_path)
 
 
+# Create a minimal fallback plan artifact when the expected persisted plan is missing or unreadable.
 def fallback_plan_artifact(stage: str, status: str, message: str, details: dict[str, object] | None = None) -> dict[str, object]:
     created_at = utc_now_iso()
     artifact = {
@@ -403,6 +419,7 @@ def fallback_plan_artifact(stage: str, status: str, message: str, details: dict[
     return legacy_artifact_from_plan_state(plan_state_from_legacy_artifact(artifact))
 
 
+# Load the persisted plan artifact and fall back to a synthetic baseline when the file is missing or invalid.
 def load_plan_artifact(
     plan_path: Path,
     *,
@@ -420,6 +437,7 @@ def load_plan_artifact(
         return fallback_plan_artifact(default_stage, default_status, default_message, default_details)
 
 
+# Persist the initial or refreshed requirements-driven plan artifact while preserving compatible increment progress when possible.
 def persist_plan_artifact(contract: dict[str, object]) -> dict[str, object]:
     plan_path = resolve_plan_path(str(contract["plan_file"]))
     existing_artifact = load_plan_artifact(
@@ -463,6 +481,7 @@ def persist_plan_artifact(contract: dict[str, object]) -> dict[str, object]:
     }
 
 
+# Update the live workflow status, increment tracking, and optional history event for a persisted plan artifact.
 def update_plan_status(
     plan_file: str,
     *,
@@ -541,6 +560,7 @@ def update_plan_status(
     }
 
 
+# Refresh the current in-progress status of a plan without appending a new history entry.
 def heartbeat_plan_status(
     plan_file: str,
     *,
@@ -558,6 +578,7 @@ def heartbeat_plan_status(
     )
 
 
+# Read the current persisted plan summary and report whether the artifact exists and can be parsed successfully.
 def read_plan_status(plan_file: str) -> dict[str, object]:
     plan_path = resolve_plan_path(plan_file)
     if not plan_path.is_file():

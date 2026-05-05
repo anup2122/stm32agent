@@ -286,7 +286,8 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
         stm32_orchestrate_feature_prompt.return_value = {"server": "orchestrator", "success": True}
 
         result = await orchestrator_server.stm32_orchestrate_prompt(
-            "Create a NUCLEO-L476RG project that will send data to PC and flash it",
+            #"Create a NUCLEO-L476RG project that will send data to PC and flash it",
+            "I have this ioc file, create a project out of it",
             timeout_seconds=45,
         )
 
@@ -1105,7 +1106,8 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             stm32_flash_firmware.return_value = {"success": True, "server": "cube_programmer"}
 
             result = await orchestrator_server.stm32_orchestrate_feature_prompt(
-                prompt="Create a NUCLEO-L476RG project that sends data to PC",
+                # prompt="Create a NUCLEO-L476RG project that sends data to PC",
+                prompt="I have this ioc file, create a project out of it",
                 build_timeout_seconds=300,
                 flash_timeout_seconds=120,
                 cubemx_timeout_seconds=600,

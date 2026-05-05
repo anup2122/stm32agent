@@ -1,0 +1,41 @@
+I’m checking the existing test coverage around prompt routing and IOC resolution so I can point you to the closest callable test, and note the gap if the exact flow is not covered yet.
+
+Searched for regex `test_orchestrate_prompt|discover_ioc_path|detect_project_context|existing_project|copy_existing_ioc|create a project|ioc file` (`**/tests/**`), 23 results
+
+Read [](file:///c%3A/agent_dev_v1/mcp-server-stm32cubep/tests/test_requirements_ioc_builder.py#1-1), lines 1 to 260
+
+Read [](file:///c%3A/agent_dev_v1/mcp-server-stm32cubep/tests/test_cubemx_smoke.py#1-1), lines 1 to 220
+
+I found the nearest existing coverage. I’m pulling the exact test names for IOC discovery as well, because the current flow is split across routing and IOC-resolution tests rather than one end-to-end test.
+
+Read [](file:///c%3A/agent_dev_v1/mcp-server-stm32cubep/tests/test_ioc_project_paths.py)
+
+Read [](file:///c%3A/agent_dev_v1/mcp-server-stm32cubep/tests/test_architecture.py#280-280), lines 280 to 335
+
+The closest existing test to call for the orchestrator part is test_architecture.py: `test_orchestrate_prompt_routes_feature_requests`. That checks that `stm32_orchestrate_prompt(...)` sends a project-creation style prompt into `stm32_orchestrate_feature_prompt(...)`. It is the best current test for “does the orchestrator choose the feature-delivery path”.
+
+For the IOC-side behavior, the closest existing tests are:
+- test_requirements_ioc_builder.py: `test_requirements_detect_existing_project_context_from_prompt`
+- test_ioc_project_paths.py: `test_discover_ioc_path_prefers_requested_existing_file`
+
+Those cover two different pieces:
+- whether the prompt/context is interpreted as “existing project / copy existing IOC”
+- whether IOC resolution prefers an explicitly provided path
+
+What is missing today is a single test that covers your exact intended flow:
+1. prompt says “I have this ioc file, create a project out of it”
+2. orchestrator resolves that as an IOC-driven CubeMX request
+3. IOC discovery searches expected locations or uses the referred file
+4. orchestrator calls CubeMX regeneration with that resolved IOC path
+
+So if your goal is to validate the current code as-is, start with test_architecture.py. If your goal is to validate the exact prompt flow you described, there is no existing single test for it yet.
+
+The quickest commands to run are:
+
+```powershell
+c:/agent_dev_v1/mcp-server-stm32cubep/.venv/Scripts/python.exe -m pytest tests/test_architecture.py -k test_orchestrate_prompt_routes_feature_requests
+c:/agent_dev_v1/mcp-server-stm32cubep/.venv/Scripts/python.exe -m pytest tests/test_requirements_ioc_builder.py -k test_requirements_detect_existing_project_context_from_prompt
+c:/agent_dev_v1/mcp-server-stm32cubep/.venv/Scripts/python.exe -m pytest tests/test_ioc_project_paths.py -k test_discover_ioc_path_prefers_requested_existing_file
+```
+
+If you want, I can add the missing end-to-end test for the exact IOC prompt flow next.

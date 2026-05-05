@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Callable
 
 
+# Normalize a synthesized IOC plan into concrete low-level IOC operations when the plan did not already provide them explicitly.
 def _operations_from_plan(plan: dict[str, object]) -> list[dict[str, object]]:
     operations = plan.get("operations")
     if isinstance(operations, list):
@@ -115,6 +116,7 @@ def compile_ioc_plan(
     return compile_contract_to_ioc_plan_fn(contract)
 
 
+# Apply a synthesized IOC change set to an existing IOC file and enforce the requested CubeMX validation policy.
 def apply_ioc_change_set(
     *,
     contract: dict[str, object],
@@ -201,6 +203,7 @@ def apply_ioc_change_set(
     }
 
 
+# Materialize a managed IOC file from a base IOC source, inject project defaults, apply synthesized changes, and validate the result.
 def construct_ioc_file(
     *,
     contract: dict[str, object],

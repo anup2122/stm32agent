@@ -40,7 +40,9 @@ def configured_ioc_path(
     base_path = cwd_resolver() if callable(cwd_resolver) else Path.cwd()
     return (base_path / candidate).resolve()
 
-
+"""
+Anup: critical.
+"""
 def detect_project_context(
     prompt: str,
     *,

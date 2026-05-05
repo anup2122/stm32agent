@@ -280,6 +280,7 @@ async def stm32_orchestrate_feature_prompt(
 
 
 @mcp.tool(description="Read the current live status of a persisted feature-delivery plan artifact so callers can poll progress during long-running workflows.")
+# Read the persisted feature-delivery plan state and reframe it as an orchestrator status payload.
 def stm32_orchestrate_feature_status(plan_file: str) -> dict[str, object]:
     status = requirements_server.read_plan_status(plan_file)
     return {
@@ -329,6 +330,7 @@ async def stm32_orchestrate_build_then_flash(
 
 
 @mcp.tool(description="High-level orchestration workflow that resets the attached STM32 target and launches a managed ST-LINK GDB server session for runtime diagnosis.")
+# Fill in the default debug session name and then launch the managed debug workflow with reset-first policy.
 async def stm32_orchestrate_debug_session(
     session_name: str | None = None,
     reset_before_launch: bool = True,
@@ -378,6 +380,7 @@ async def stm32_orchestrate_debug_session(
     )
 
 
+# Collect the shared configuration state and each domain server's current capabilities into one orchestrator snapshot.
 def orchestration_status() -> dict[str, object]:
     return {
         "server": "orchestrator",
@@ -400,6 +403,7 @@ def stm32_orchestration_status() -> dict[str, object]:
 
 
 @mcp.tool(description="Route a natural-language STM32 workflow request to the most appropriate tool-domain MCP server scaffold and return the normalized result.")
+# Route a natural-language STM32 request to the correct orchestration path and invoke the selected workflow.
 async def stm32_orchestrate_prompt(prompt: str, timeout_seconds: int = 120, mode: PromptMode = "auto") -> dict[str, object]:
     return await prompt_router_workflow.route_prompt(
         prompt=prompt,
@@ -423,6 +427,7 @@ async def stm32_orchestrate_prompt(prompt: str, timeout_seconds: int = 120, mode
 
 
 @mcp.tool(description="High-level orchestration entry point for a project build using the shared stm32-project.jsonc metadata.")
+# Run the configured project build and wrap the result in a consistent orchestrator response shape.
 def stm32_orchestrate_build(timeout_seconds: int = 600) -> dict[str, object]:
     result = build_server.stm32_build_project(timeout_seconds=timeout_seconds)
     return {
@@ -433,6 +438,7 @@ def stm32_orchestrate_build(timeout_seconds: int = 600) -> dict[str, object]:
 
 
 @mcp.tool(description="High-level orchestration entry point for reset-first ST-LINK GDB server launch using the shared STM32 project metadata.")
+# Start the orchestrated debug session workflow and return it under the standard debug response envelope.
 async def stm32_orchestrate_debug(timeout_seconds: int = 60) -> dict[str, object]:
     result = await stm32_orchestrate_debug_session(timeout_seconds=timeout_seconds)
     return {
@@ -459,6 +465,7 @@ async def stm32_orchestrate_debug_question(
 
 
 @mcp.tool(description="High-level orchestration entry point for flashing the configured default firmware artifact from stm32-project.jsonc.")
+# Resolve the configured firmware artifact, fail early when it is missing, and otherwise flash it through the programmer server.
 async def stm32_orchestrate_flash(timeout_seconds: int = 240) -> dict[str, object]:
     file_path = configured_firmware_artifact()
     if not isinstance(file_path, str) or not file_path.strip():

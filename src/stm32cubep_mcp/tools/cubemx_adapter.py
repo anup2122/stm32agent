@@ -33,6 +33,7 @@ def cubemx_tool_entry(load_tools_local_config: Callable[[], dict[str, object]]) 
     return tool_entry if isinstance(tool_entry, dict) else {}
 
 
+# Derive CubeMX JAR candidates from the installed CubeIDE plugin layout when a standalone executable is not configured.
 def derive_cubemx_candidates(resolve_cubeide_path: Callable[[], str]) -> list[Path]:
     try:
         cubeide_path = Path(resolve_cubeide_path()).resolve()
@@ -43,6 +44,7 @@ def derive_cubemx_candidates(resolve_cubeide_path: Callable[[], str]) -> list[Pa
     return sorted(cubeide_root.glob("plugins/com.st.stm32cube.common.mx_*/STM32CubeMX.jar"))
 
 
+# Derive Java runtime candidates from the CubeIDE installation and fall back to host Java lookup when needed.
 def derive_java_candidates(resolve_cubeide_path: Callable[[], str], host_platform: str) -> list[Path]:
     try:
         cubeide_path = Path(resolve_cubeide_path()).resolve()
@@ -65,6 +67,7 @@ def resolve_java_path(resolve_cubeide_path: Callable[[], str], host_platform: st
     return shutil.which("java")
 
 
+# Discover CubeMX launch options across environment overrides, config entries, PATH defaults, and CubeIDE plugin installs.
 def discover_cubemx(
     *,
     host_platform: str,
@@ -145,6 +148,7 @@ def discover_cubemx(
     }
 
 
+# Convert the resolved CubeMX discovery result into the concrete launcher command prefix, including Java for JAR launches.
 def resolve_cubemx_launcher(discovery: dict[str, object]) -> dict[str, object]:
     resolved_path = discovery.get("resolved_path")
     launch_kind = discovery.get("launch_kind")
@@ -170,6 +174,7 @@ def resolve_cubemx_launcher(discovery: dict[str, object]) -> dict[str, object]:
     }
 
 
+# Terminate a running CubeMX process reliably, using `taskkill` on Windows to clean up child processes.
 def terminate_cubemx_process(
     process: subprocess.Popen[str] | object,
     *,
@@ -193,6 +198,7 @@ def terminate_cubemx_process(
         return
 
 
+# Detect whether the CubeMX script transcript shows a successful generate-and-exit sequence.
 def cubemx_script_reports_success(output_text: str) -> bool:
     normalized = output_text.lower()
     generate_index = normalized.rfind("project generate")
@@ -203,6 +209,7 @@ def cubemx_script_reports_success(output_text: str) -> bool:
     return bool(re.search(r"project generate[\s\S]*\bok\b[\s\S]*exit_mx", tail))
 
 
+# Translate known CubeMX transcript patterns into a clearer high-level failure reason.
 def cubemx_failure_reason(stdout: str, stderr: str) -> str | None:
     combined = "\n".join(part for part in (stdout, stderr) if part).lower()
     if "the version of the current ioc is too high" in combined:
@@ -216,6 +223,7 @@ def cubemx_failure_reason(stdout: str, stderr: str) -> str | None:
     return None
 
 
+# Run CubeMX while streaming log progress, watching completion markers, and normalizing exit, timeout, and marker-based success outcomes.
 def run_cubemx_command_with_progress(
     command: list[str],
     timeout_seconds: int,

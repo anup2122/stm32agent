@@ -9,6 +9,7 @@ DEFAULT_TOOLCHAIN = "STM32CubeIDE"
 DEFAULT_REPEATED_FAILURE_THRESHOLD = 2
 
 
+# Provide the default execution policy used when a prompt does not override workflow behavior.
 def default_execution_policy() -> dict[str, object]:
     return {
         "mode": "incremental",
@@ -23,6 +24,7 @@ def default_execution_policy() -> dict[str, object]:
     }
 
 
+# Provide the default long-horizon planning policy embedded into every generated contract.
 def default_planning_policy() -> dict[str, object]:
     return {
         "horizon": "long_horizon",
@@ -34,6 +36,7 @@ def default_planning_policy() -> dict[str, object]:
     }
 
 
+# Return the normalized increment list from a contract, falling back to the current increment when only one exists implicitly.
 def list_contract_increments(contract: dict[str, object]) -> list[dict[str, object]]:
     increments = contract.get("increments")
     if isinstance(increments, list):
@@ -47,6 +50,7 @@ def list_contract_increments(contract: dict[str, object]) -> list[dict[str, obje
     return []
 
 
+# Assemble the canonical requirements-to-IOC contract with normalized defaults, planning policy, and execution policy.
 def make_contract(
     *,
     source_prompt: str,
@@ -96,6 +100,7 @@ def make_contract(
     }
 
 
+# Validate that a candidate contract has the required schema, target, planning, execution, and increment fields.
 def validate_contract(contract: object) -> list[str]:
     errors: list[str] = []
     if not isinstance(contract, dict):

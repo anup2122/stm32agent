@@ -50,6 +50,7 @@ from typing import Awaitable, Callable
 PARTIAL_IOC_RECOVERY_MESSAGE = "could not complete the ioc file. use the partial ioc file, open in CubeMX and complete the remaining configuration. then call me again to complete the remaining process"
 
 
+# Collect any CubeMX XML reference records produced by IOC planning, including nested results from recovery paths.
 def _xml_references_from_ioc_result(ioc_result: dict[str, object]) -> list[dict[str, object]]:
     plan = ioc_result.get("plan")
     if not isinstance(plan, dict) and isinstance(ioc_result.get("ioc_result"), dict):
@@ -63,6 +64,7 @@ def _xml_references_from_ioc_result(ioc_result: dict[str, object]) -> list[dict[
     return [reference for reference in references if isinstance(reference, dict)]
 
 
+# Build the response details returned when IOC generation only completed partially and requires manual CubeMX follow-up.
 def partial_ioc_failure_details(
     *,
     ioc_path: object,
@@ -79,6 +81,7 @@ def partial_ioc_failure_details(
     }
 
 
+# Identify behaviors in the requested increment that CubeMX IOC changes alone cannot implement without user-code firmware work.
 def firmware_behavior_gaps(increment_contract: dict[str, object]) -> list[str]:
     gaps: list[str] = []
     intents = increment_contract.get("interface_intents")
@@ -111,6 +114,7 @@ def firmware_behavior_gaps(increment_contract: dict[str, object]) -> list[str]:
     return gaps
 
 
+# Drive the full feature-delivery workflow from prompt decomposition through IOC updates, CubeMX regeneration, build, flash, and optional runtime validation.
 async def orchestrate_feature_delivery(
     *,
     prompt: str,

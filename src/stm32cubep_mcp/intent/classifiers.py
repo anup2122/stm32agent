@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import re
 
+"""
+Anup: critical
+"""
+
+
 SUPPORTED_PROMPT_FAMILIES = [
     "NUCLEO-L476RG device-to-PC serial transmit",
     "NUCLEO-L476RG LED blink",

@@ -1,0 +1,9 @@
+
+# Route a user prompt into the correct orchestration workflow and return a normalized orchestrator response envelope.
+async def route_prompt(..)
+
+
+file: routing_service.py
+# Classify a natural-language STM32 request into the workflow family that should handle it.
+def classify_prompt(prompt: str) -> WorkflowRoute:
+

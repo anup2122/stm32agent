@@ -13,6 +13,11 @@ def _load_project_data(project_metadata_loader: Callable[[], dict[str, object]] 
     return project_data if isinstance(project_data, dict) else {}
 
 
+"""
+Target detection logic for STM32Cube.P project context.
+Anup: critical.
+"""
+
 def detect_target(
     prompt: str,
     *,
